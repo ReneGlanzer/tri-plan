@@ -1,4 +1,4 @@
-/* Helpers, Datum, Speicher */
+﻿/* Helpers, Datum, Speicher */
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -29,6 +29,8 @@ function parseMMSS(str) {
   str = String(str).trim().replace(',', '.');
   if (!str) return null;
   if (/^\d+:\d{1,2}$/.test(str)) { const [m, s] = str.split(':').map(Number); return m * 60 + s; }
+  if (/^\d+\.\d{2}$/.test(str)) { const [m, s] = str.split('.').map(Number); return m * 60 + s; } // 1.45 / 1,45 -> 1:45
+  if (/^\d{3,4}$/.test(str)) { const n = Number(str); return Math.floor(n / 100) * 60 + n % 100; } // 145 -> 1:45
   if (/^\d+(\.\d+)?$/.test(str)) return Number(str) * 60;
   return null;
 }
