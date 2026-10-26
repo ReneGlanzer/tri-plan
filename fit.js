@@ -125,7 +125,46 @@ const FIT = (() => {
     return out;
   }
 
+  /* ---------- RPE-Pläne: Zeit-Schritte aus dem Plantext (Lauf/Geh-Intervalle, Rad-Abschnitte) ---------- */
+  function rpeParse(text, defInt) {
+    const out = [];
+    const intOf = lbl => (defInt === 'warmup' || defInt === 'cooldown') ? defInt : /gehen/.test(lbl) ? 'recovery' : /zügig|Steigerung/.test(lbl) ? 'interval' : 'active';
+    const addPart = part => {
+      let m = part.match(/^(\d+)(?:–(\d+))? (min|s)(?: (\d+) s)? ?(.*)$/);
+      if (m) { const sec = ((+m[1] + +(m[2] || m[1])) / 2) * (m[3] === 'min' ? 60 : 1) + (m[4] ? +m[4] : 0); out.push(step(defInt === 'warmup' ? 'Aufwärmen' : defInt === 'cooldown' ? 'Ausklang' : (cap(m[5], 20) || 'Schritt'), timeS(sec), OPEN, intOf(m[5]), cap(part, 50))); return; }
+      m = part.match(/^(\d+) km (.*)$/);
+      if (m) out.push(step(cap(part, 20), distM(+m[1] * 1000), OPEN, intOf(m[2]), cap(part, 50)));
+    };
+    for (const tok of String(text || '').split(' · ')) {
+      const m = tok.match(/^(\d+) × \((.+)\)$/);
+      if (m) { const base = out.length; m[2].split(' + ').forEach(addPart); if (out.length > base) out.push({ repeat: true, from: base, count: +m[1] }); }
+      else addPart(tok);
+    }
+    return out;
+  }
+  const rpeSec = arr => { let t = 0; arr.forEach((x, i) => { if (x.repeat) { let b = 0; for (let k = x.from; k < i; k++) if (!arr[k].repeat && arr[k].dur.t === 'time') b += arr[k].dur.v; t += b * (x.count - 1); } else if (x.dur.t === 'time') t += x.dur.v; }); return t; };
+  function rpeStepsFor(s, eff) {
+    const R = s.raw, total = (eff.dur || s.durMin || 30) * 60;
+    const warm = rpeParse(R['Warm-up'], 'warmup'), cool = rpeParse(R['Cool-down'], 'cooldown');
+    let main;
+    if (s.testKind === '5k') main = [step('5 km RPE 7', distM(5000), OPEN, 'active', cap(T(R['Main set']), 50))];
+    else if (s.disc === 'strength' || s.disc === 'mob') main = [];
+    else {
+      main = rpeParse(R['Main set'], 'active');
+      if (eff.mode === 'easy') main = main.map(x => x.repeat ? x : { ...x, int: x.int === 'interval' ? 'active' : x.int });
+      if (eff.repsMinus) main = main.map(x => x.repeat ? { ...x, count: Math.max(1, x.count - eff.repsMinus) } : x);
+    }
+    if (!main.length) { const left = total - rpeSec(warm) - rpeSec(cool); main = [step(s.disc === 'strength' ? 'Kraft' : s.disc === 'mob' ? 'Übung' : 'Hauptteil', timeS(Math.max(300, left)), OPEN, 'active', cap(T(R['Main set']), 50))]; }
+    else if (main[0] && !main[0].repeat && !main[0].notes) main[0].notes = cap(T(R['Main set']), 50);
+    const sport = s.disc === 'bike' ? { sport: 2, sub: 0 } : s.disc === 'run' ? { sport: 1, sub: 0 } : s.disc === 'strength' ? { sport: 10, sub: 20 } : { sport: 10, sub: /^Yoga/.test(s.name) ? 43 : 19 };
+    // Wiederholungs-Verweise (from) auf die Gesamtliste umrechnen
+    const all = []; const add = arr => { const off = all.length; arr.forEach(x => all.push(x.repeat ? { ...x, from: x.from + off } : x)); };
+    add(warm); add(main); add(cool);
+    return { ...sport, steps: all };
+  }
+
   function stepsFor(s, z, eff) {
+    if (PM.zoneModel === 'rpe') return rpeStepsFor(s, eff);
     if (s.disc === 'bike') return { sport: 2, sub: 0, steps: bikeSteps(s, z, eff) };
     if (s.disc === 'run') return { sport: 1, sub: 0, steps: runSteps(s, z, eff) };
     if (s.disc === 'swim') return { sport: 5, sub: 17, steps: swimSteps(s, z, eff) };
@@ -204,8 +243,7 @@ const FIT = (() => {
     const date = dateOfSession(s), z = Zn.at(S, date), eff = effective(s);
     if (s.disc === 'race' || eff.mode === 'rest') return null;
     const r = stepsFor(s, z, eff); if (!r) return null;
-    const parts = T(s.title).split(' - ');
-    const nm = `W${s.week} ${wdShort(date)} ${parts[0]}`.slice(0, 31);
+    const nm = `W${planWeekOf(s.week)} ${wdShort(date)} ${T(s.name)}`.slice(0, 31);
     const flat = r.steps;
     return { name: `${slug(nm.replace(/ /g, '_'))}-${date}.fit`, data: encode(nm, r.sport, r.sub, flat), steps: flat };
   }

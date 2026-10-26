@@ -58,6 +58,7 @@ const runPaceRange = (a, b) => `${fmtMMSS(Math.min(a, b))}–${fmtMMSS(Math.max(
 
 /* Text 1:1 anzeigen und Kennzahlen (Watt / Pace / HF) direkt dahinter einblenden */
 function enrich(text, disc, z, opt = {}) {
+  if (!z) return esc(text); // Pläne ohne Zonen (RPE) zeigen den Text unverändert
   const lower = !!opt.lower;
   const re = /(\d{2,3})(?:\s?-\s?(\d{2,3}))?\s?%\s?FTP|CSS\s?([+\-])\s?(\d+)(?:\s?-\s?(\d+))?\s?s\b|\bZ([1-5])(?:-Z([1-5]))?\b|\bRPE\s?(\d{1,2})(?:\s?-\s?(\d{1,2}))?|\b(?:validated )?(?:race|70\.3) power\b|\b70\.3[ -](?:swim effort|Schwimmeffort|pace)\b|\brace pace\b/gi;
   let out = '', last = 0, m;

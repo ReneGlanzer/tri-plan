@@ -1,8 +1,10 @@
-﻿/* SVG-Diagramme: Plan (laut PDF) vs. Ist */
+﻿/* SVG-Diagramme: Plan (laut PDF) vs. Ist – für beliebig viele Wochen */
 'use strict';
 const CH = {};
-const COL = { swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24' };
+const COL = { swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', mob: '#b48cff', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24', q: '#c084fc', v: '#9db8ff' };
 const CW_ = 360, CH_ = 240, ML = 36, MR = 12, MT = 14, MB = 40;
+let CHN = 20; // Anzahl Wochen im aktuellen Diagramm
+const setChartN = n => { CHN = n; };
 
 function niceScale(min, max, ticks = 5) {
   if (max === min) max = min + 1;
@@ -14,34 +16,36 @@ function niceScale(min, max, ticks = 5) {
   const t = []; for (let v = lo; v <= hi + step / 2; v += step) t.push(+v.toFixed(6));
   return { lo, hi, t };
 }
-const xLine = i => ML + (i / 19) * (CW_ - ML - MR);
-const xBand = i => ML + ((i + 0.5) / 20) * (CW_ - ML - MR);
+const xLine = i => ML + (i / Math.max(1, CHN - 1)) * (CW_ - ML - MR);
+const xBand = i => ML + ((i + 0.5) / CHN) * (CW_ - ML - MR);
 const pathOf = (vals, xf, yf) => {
   let d = '', pen = false;
   vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${xf(i).toFixed(1)},${yf(v).toFixed(1)}`; pen = true; });
   return d;
 };
+const xTicks = () => { const t = [1]; for (let w = 5; w < CHN; w += 5) t.push(w); if (CHN - t[t.length - 1] >= 2) t.push(CHN); return [...new Set(t)]; };
 
-function frame(id, sc, yFmt, xf, bandMode) {
+function frame(id, sc, yFmt, xf) {
   const yf = v => CH_ - MB - ((v - sc.lo) / (sc.hi - sc.lo)) * (CH_ - MB - MT);
   let g = '';
   for (const t of sc.t) {
     const y = yf(t).toFixed(1);
     g += `<line class="grid" x1="${ML}" x2="${CW_ - MR}" y1="${y}" y2="${y}"/><text class="ax" x="${ML - 6}" y="${(+y + 3.5)}" text-anchor="end">${yFmt(t)}</text>`;
   }
-  for (const w of [1, 5, 10, 15, 20]) g += `<text class="ax" x="${xf(w - 1).toFixed(1)}" y="${CH_ - MB + 16}" text-anchor="middle">${w}</text>`;
+  for (const w of xTicks()) g += `<text class="ax" x="${xf(w - 1).toFixed(1)}" y="${CH_ - MB + 16}" text-anchor="middle">${w}</text>`;
   g += `<text class="ax" x="${CW_ / 2}" y="${CH_ - 6}" text-anchor="middle" style="opacity:.55">Woche</text>`;
   return { g, yf };
 }
-const cwMarker = (cw, xf) => cw >= 1 && cw <= 20 ? `<line class="today" x1="${xf(cw - 1).toFixed(1)}" x2="${xf(cw - 1).toFixed(1)}" y1="${MT}" y2="${CH_ - MB}"/>` : '';
+const cwMarker = (cw, xf) => cw >= 1 && cw <= CHN ? `<line class="today" x1="${xf(cw - 1).toFixed(1)}" x2="${xf(cw - 1).toFixed(1)}" y1="${MT}" y2="${CH_ - MB}"/>` : '';
+const ceilLine = (v, yf, label) => v ? `<line class="ceil" x1="${ML}" x2="${CW_ - MR}" y1="${yf(v).toFixed(1)}" y2="${yf(v).toFixed(1)}"/>${label ? `<text class="ax cl" x="${ML + 4}" y="${(yf(v) - 4).toFixed(1)}">${label}</text>` : ''}` : '';
 
-/* Liniendiagramm mit 1..n Serien {label,color,plan[],ist[]} */
+/* Liniendiagramm mit 1..n Serien {color,plan[],ist[]} */
 function lineChart(id, series, o) {
   const all = []; series.forEach(s => { s.plan.forEach(v => all.push(v)); s.ist.forEach(v => v != null && all.push(v)); });
+  if (o.ceiling) all.push(o.ceiling);
   const sc = niceScale(o.min != null ? Math.min(o.min, ...all) : Math.min(...all), Math.max(...all), 5);
-  const { g, yf } = frame(id, sc, o.yFmt, xLine, false);
-  let body = g + cwMarker(o.cw, xLine);
-  if (o.ceiling) body += `<line class="ceil" x1="${ML}" x2="${CW_ - MR}" y1="${yf(o.ceiling).toFixed(1)}" y2="${yf(o.ceiling).toFixed(1)}"/>`;
+  const { g, yf } = frame(id, sc, o.yFmt, xLine);
+  let body = g + cwMarker(o.cw, xLine) + ceilLine(o.ceiling, yf, o.ceilLabel);
   series.forEach(s => {
     body += `<path class="plan" d="${pathOf(s.plan, xLine, yf)}" stroke="${s.color}"/>`;
     s.plan.forEach((v, i) => body += `<circle class="pdot" cx="${xLine(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="2" fill="${s.color}"/>`);
@@ -51,34 +55,38 @@ function lineChart(id, series, o) {
     if (p) body += `<path class="ist" pathLength="1" d="${p}" stroke="${s.color}"/>`;
     s.ist.forEach((v, i) => { if (v != null) body += `<circle class="idot" style="animation-delay:${0.5 + i * 0.05}s" cx="${xLine(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.6" fill="${s.color}"/>`; });
   });
-  CH[id] = { xf: xLine, n: 20, tip: i => o.tip(i), band: false };
-  return wrap(id, body, series);
+  CH[id] = { xf: xLine, n: CHN, tip: i => o.tip(i), band: false };
+  return wrap(id, body);
 }
 
-/* gestapelte Balken: Plan (breit, transparent) + Ist (schmal, voll) */
-function stackChart(id, planDisc, istDisc, o) {
-  const keys = ['swim', 'bike', 'run', 'strength'];
-  const tot = d => keys.reduce((a, k) => a + (d ? d[k] : 0), 0);
-  const maxV = Math.max(...planDisc.map(tot), ...istDisc.map(d => d ? tot(d) : 0));
+/* gestapelte Balken: Plan (breit, transparent) + Ist (schmal, voll). keys/colors frei wählbar. */
+function stackChart(id, planRows, istRows, o) {
+  const keys = o.keys, colors = o.colors || COL;
+  const tot = d => keys.reduce((a, k) => a + (d ? (d[k] || 0) : 0), 0);
+  const maxV = Math.max(...planRows.map(tot), ...istRows.map(d => d ? tot(d) : 0), o.ceiling || 0);
   const sc = niceScale(0, maxV, 5);
-  const { g, yf } = frame(id, sc, v => v, xBand, true);
-  const bw = (CW_ - ML - MR) / 20;
-  let body = g + cwMarker(o.cw, xBand);
-  planDisc.forEach((d, i) => {
+  const { g, yf } = frame(id, sc, o.yFmt || (v => v), xBand);
+  const bw = (CW_ - ML - MR) / CHN;
+  let body = g + cwMarker(o.cw, xBand) + ceilLine(o.ceiling, yf, o.ceilLabel);
+  (o.vmarks || []).forEach(m => {
+    const x = xBand(m.i) - bw / 2;
+    body += `<line class="vmark" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${MT}" y2="${CH_ - MB}"/><text class="ax vl" text-anchor="end" x="${(x - 4).toFixed(1)}" y="${MT + 10}">${m.label}</text>`;
+  });
+  planRows.forEach((d, i) => {
     let acc = 0; const x = xBand(i) - bw * 0.42, w = bw * 0.84;
     keys.forEach(k => { const v = d[k]; if (!v) return; const y1 = yf(acc + v), y0 = yf(acc); acc += v;
-      body += `<rect class="pbar" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, y0 - y1).toFixed(1)}" fill="${COL[k]}" stroke="${COL[k]}"/>`; });
+      body += `<rect class="pbar" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, y0 - y1).toFixed(1)}" fill="${colors[k]}" stroke="${colors[k]}"/>`; });
   });
-  istDisc.forEach((d, i) => {
+  istRows.forEach((d, i) => {
     if (!d) return; let acc = 0; const x = xBand(i) - bw * 0.26, w = bw * 0.52;
     keys.forEach(k => { const v = d[k]; if (!v) return; const y1 = yf(acc + v), y0 = yf(acc); acc += v;
-      body += `<rect class="ibar" style="animation-delay:${0.15 + i * 0.04}s" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, y0 - y1).toFixed(1)}" fill="${COL[k]}"/>`; });
+      body += `<rect class="ibar" style="animation-delay:${0.15 + i * 0.04}s" x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, y0 - y1).toFixed(1)}" fill="${colors[k]}"/>`; });
   });
-  CH[id] = { xf: xBand, n: 20, tip: i => o.tip(i), band: true };
-  return wrap(id, body, null);
+  CH[id] = { xf: xBand, n: CHN, tip: i => o.tip(i), band: true };
+  return wrap(id, body);
 }
 
-function wrap(id, body, series) {
+function wrap(id, body) {
   return `<div class="chart" data-cid="${id}"><svg viewBox="0 0 ${CW_} ${CH_}" role="img" aria-label="Diagramm">${body}<line class="xh" y1="${MT}" y2="${CH_ - MB}" x1="-10" x2="-10"/></svg><div class="tip"></div></div>`;
 }
 
@@ -102,4 +110,3 @@ function initCharts(root) {
     el.addEventListener('pointerleave', ev => { if (ev.pointerType === 'mouse') { tip.classList.remove('on'); xh.style.opacity = 0; } });
   });
 }
-

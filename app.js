@@ -39,58 +39,76 @@ function validateZones(o) {
   return { z: { ftp: Math.round(ftp), css: Math.round(css), hr, runThr: runThr ? Math.round(runThr) : null } };
 }
 
-/* ---------- Onboarding ---------- */
-const OB = { step: 0, name: '', weight: '', raceName: 'IRONMAN 70.3', raceDate: '', ftp: '', css: '', t400: '', t200: '', hr: [['', ''], ['', ''], ['', ''], ['', ''], ['', '']], runThr: '' };
-const OB_STEPS = 8;
+/* ---------- Onboarding (Plan-Auswahl → planabhängige Schritte) ---------- */
+const OB_FRESH = () => ({ plan: null, step: 'choose', name: '', weight: '', raceName: '', raceDate: '', ftp: '', css: '', t400: '', t200: '', hr: [['', ''], ['', ''], ['', ''], ['', ''], ['', '']], runThr: '' });
+const OB = OB_FRESH();
 const hrTemplate = i => ['Z1 Sehr leicht', 'Z2 Leicht', 'Z3 Aerob', 'Z4 Schwelle', 'Z5 Maximum'][i];
+const obSteps = () => !OB.plan ? ['choose'] : PM.zoneModel === 'ftp'
+  ? ['choose', 'intro', 'about', 'end', 'ftp', 'css', 'hr', 'runthr', 'summary']
+  : ['choose', 'intro', 'about', 'end', 'summary'];
 
-function obErr(step) {
-  if (step === 1) { if (!OB.name.trim()) return 'Bitte deinen Namen eintragen.'; const w = num(OB.weight); if (!w || w < 30 || w > 200) return 'Bitte ein gültiges Gewicht (kg) eintragen.'; }
-  if (step === 2) {
-    if (!OB.raceName.trim()) return 'Bitte einen Rennnamen eintragen.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(OB.raceDate)) return 'Bitte das Renndatum wählen.';
-    if (diffDays(OB.raceDate, todayIso()) < 0) return 'Das Rennen muss in der Zukunft liegen.';
+function obErr(id) {
+  const ftpPlan = PM.zoneModel === 'ftp';
+  if (id === 'about') {
+    if (!OB.name.trim()) return 'Bitte deinen Namen eintragen.';
+    const w = num(OB.weight);
+    if (ftpPlan ? (!w || w < 30 || w > 200) : (OB.weight !== '' && (!w || w < 30 || w > 200))) return 'Bitte ein gültiges Gewicht (kg) eintragen' + (ftpPlan ? '.' : ' oder das Feld leer lassen.');
   }
-  if (step === 3) { const f = num(OB.ftp); if (!f || f < 80 || f > 600) return 'FTP bitte in Watt eintragen (80–600).'; }
-  if (step === 4) { const c = parseMMSS(OB.css); if (!c || c < 60 || c > 200) return 'CSS bitte als mm:ss pro 100 m eintragen (z. B. 1:45).'; }
-  if (step === 5) { const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: '' }); if (r.err && /HF/.test(r.err)) return r.err; }
-  if (step === 6 && OB.runThr) { const r = parseMMSS(OB.runThr); if (!r || r < 150 || r > 600) return 'Pace bitte als mm:ss pro km (z. B. 4:40) oder leer lassen.'; }
+  if (id === 'end') {
+    if (PM.askEventName && !OB.raceName.trim()) return 'Bitte einen Rennnamen eintragen.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(OB.raceDate)) return 'Bitte das Datum wählen.';
+    if (diffDays(OB.raceDate, todayIso()) < 0) return 'Das Datum muss in der Zukunft liegen.';
+  }
+  if (id === 'ftp') { const f = num(OB.ftp); if (!f || f < 80 || f > 600) return 'FTP bitte in Watt eintragen (80–600).'; }
+  if (id === 'css') { const c = parseMMSS(OB.css); if (!c || c < 60 || c > 200) return 'CSS bitte als mm:ss pro 100 m eintragen (z. B. 1:45).'; }
+  if (id === 'hr') { const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: '' }); if (r.err && /HF/.test(r.err)) return r.err; }
+  if (id === 'runthr' && OB.runThr) { const r = parseMMSS(OB.runThr); if (!r || r < 150 || r > 600) return 'Pace bitte als mm:ss pro km (z. B. 4:40) oder leer lassen.'; }
   return null;
 }
+function obEndInfo() {
+  if (!OB.raceDate) return '';
+  const N = PL.weeks.length; const start = planStartFor(OB.raceDate);
+  const d = diffDays(start, todayIso()); const rd = parseIso(OB.raceDate).getDay();
+  return `<div class="card mini calc-card"><p class="eyebrow">Berechneter Plan</p><p><b>Start: ${esc(fmtDateLong(start))}</b><br>${esc(PM.endLabel)}: ${esc(fmtDateLong(OB.raceDate))}${PM.eventOffset ? `<br>${esc(PM.eventName)}: ${esc(fmtDateLong(addDays(OB.raceDate, PM.eventOffset)))}` : ''}</p>` +
+    (d > 0 ? `<p class="muted small">Der Plan beginnt in ${d} Tagen (${Math.floor(d / 7)} Wochen Vorlauf).</p>` : d === 0 ? '<p class="muted small">Der Plan startet heute.</p>' : `<p class="warn small">Bis zum ${esc(PM.endLabel)} sind es weniger als ${N} Wochen. Der Plan hätte am ${esc(fmtDate(start))} beginnen müssen – du steigst in Woche ${Math.floor(-d / 7) + 1} ein und die früheren Wochen entfallen.</p>`) +
+    (rd !== 0 ? `<p class="warn small">${esc(PM.endWeekdayWarn)} ${WD_LONG[rd]} – die Woche läuft dann von ${WD_LONG[parseIso(start).getDay()]} bis ${WD_LONG[rd]} (Plan-Tage werden entsprechend verschoben).</p>` : '') + '</div>';
+}
 function obStepHtml() {
-  const s = OB.step;
-  const dots = `<div class="ob-dots">${Array.from({ length: OB_STEPS }, (_, i) => `<i class="${i <= s ? 'on' : ''}"></i>`).join('')}</div>`;
+  const steps = obSteps(); const id = OB.step; const idx = Math.max(0, steps.indexOf(id));
+  const dots = id === 'choose' ? '' : `<div class="ob-dots">${Array.from({ length: steps.length - 1 }, (_, i) => `<i class="${i < idx ? 'on' : ''}"></i>`).join('')}</div>`;
   const inp = (label, key, val, extra = '') => `<label class="fld"><span>${label}</span><input data-ob="${key}" value="${esc(val)}" ${extra}></label>`;
   let body = '';
-  if (s === 0) body = `<div class="ob-hero"><div class="orb"><i></i><i></i><i></i></div><h1>Dein Weg zum<br>Ironman 70.3</h1><p>20 Wochen Performance-Plan, persönlich berechnet aus deiner FTP, CSS und deinen Garmin-HF-Zonen. Ein kurzes Onboarding – einmalig.</p></div>`;
-  if (s === 1) body = `<h2>Über dich</h2><p class="muted">Damit die App dich persönlich ansprechen kann.</p>${inp('Name *', 'name', OB.name, 'autocomplete="given-name"')}${inp('Gewicht (kg) *', 'weight', OB.weight, 'inputmode="decimal" placeholder="75"')}`;
-  if (s === 2) {
-    const start = OB.raceDate ? planStartFor(OB.raceDate) : null;
-    let info = '';
-    if (start) {
-      const d = diffDays(start, todayIso()); const rd = parseIso(OB.raceDate).getDay();
-      info = `<div class="card mini calc-card"><p class="eyebrow">Berechneter Plan</p><p><b>Start: ${esc(fmtDateLong(start))}</b><br>Ende / Rennen: ${esc(fmtDateLong(OB.raceDate))}</p>` +
-        (d > 0 ? `<p class="muted small">Der Plan beginnt in ${d} Tagen (${Math.floor(d / 7)} Wochen Vorlauf).</p>` : d === 0 ? '<p class="muted small">Der Plan startet heute.</p>' : `<p class="warn small">Bis zum Rennen sind es weniger als 20 Wochen. Der Plan hätte am ${esc(fmtDate(start))} beginnen müssen – du steigst in Woche ${Math.floor(-d / 7) + 1} ein und die früheren Wochen entfallen.</p>`) +
-        (rd !== 0 ? `<p class="warn small">Der Plan ist für einen Rennsonntag gebaut. Dein Renntag ist ein ${WD_LONG[rd]} – die Woche läuft dann von ${WD_LONG[parseIso(start).getDay()]} bis ${WD_LONG[rd]} (Plan-Tage werden entsprechend verschoben).</p>` : '') + '</div>';
-    }
-    body = `<h2>Dein Rennen</h2><p class="muted">Der 20-Wochen-Plan wird rückwärts vom Renntag berechnet.</p>${inp('Rennname *', 'raceName', OB.raceName)}<label class="fld"><span>Renndatum *</span><input type="date" data-ob="raceDate" value="${OB.raceDate}" min="${todayIso()}"></label><div id="obRaceInfo">${info}</div>`;
+  if (id === 'choose') {
+    body = `<h2>Wähle deinen Trainingsplan</h2><p class="muted">Jeder Plan hat seinen eigenen Aufbau. Danach folgt ein kurzes Onboarding – einmalig.</p>` +
+      Object.values(window.PLANS).map(P => { const c = P.meta.card; return `<button type="button" class="card plancard" data-act="pickPlan" data-plan="${P.meta.id}"><h3>${esc(c.title)}</h3><p>${esc(c.tagline)}</p><div class="chips">${c.facts.map(f => `<span>${esc(f)}</span>`).join('')}</div><p class="muted small">${esc(c.needs)}</p><span class="go">Plan auswählen ›</span></button>`; }).join('');
   }
-  if (s === 3) body = `<h2>Rad · FTP</h2><p class="muted">Deine aktuelle Functional Threshold Power. Daraus werden alle Wattbereiche des Plans berechnet (z. B. Z2 = 56–75 %).</p>${inp('Aktuelle FTP (Watt) *', 'ftp', OB.ftp, 'inputmode="numeric" placeholder="250"')}<div id="obFtp">${obFtpPrev()}</div>`;
-  if (s === 4) body = `<h2>Schwimmen · CSS</h2><p class="muted">Critical Swim Speed als Pace pro 100 m. Daraus entstehen Technik-, Race- und Schwellen-Paces.</p>${inp('Aktuelle CSS (mm:ss / 100 m) *', 'css', OB.css, 'placeholder="1:45" inputmode="text" autocapitalize="off" autocorrect="off"')}
+  if (id === 'intro') body = `<div class="ob-hero"><div class="orb"><i></i><i></i><i></i></div><h1>${PM.heroTitle}</h1><p>${esc(PM.heroText)}</p><p class="muted small">${esc(PM.card.title)}</p></div>`;
+  if (id === 'about') body = `<h2>Über dich</h2><p class="muted">Damit die App dich persönlich ansprechen kann.</p>${inp('Name *', 'name', OB.name, 'autocomplete="given-name"')}${inp(PM.zoneModel === 'ftp' ? 'Gewicht (kg) *' : 'Gewicht (kg) – optional', 'weight', OB.weight, 'inputmode="decimal" placeholder="75"')}`;
+  if (id === 'end') body = `<h2>${esc(PM.endTitle)}</h2><p class="muted">${esc(PM.endIntro)}</p>${PM.askEventName ? inp('Rennname *', 'raceName', OB.raceName) : ''}<label class="fld"><span>${esc(PM.endField)}</span><input type="date" data-ob="raceDate" value="${OB.raceDate}" min="${todayIso()}"></label><div id="obRaceInfo">${obEndInfo()}</div>`;
+  if (id === 'ftp') body = `<h2>Rad · FTP</h2><p class="muted">Deine aktuelle Functional Threshold Power. Daraus werden alle Wattbereiche des Plans berechnet (z. B. Z2 = 56–75 %).</p>${inp('Aktuelle FTP (Watt) *', 'ftp', OB.ftp, 'inputmode="numeric" placeholder="250"')}<div id="obFtp">${obFtpPrev()}</div>`;
+  if (id === 'css') body = `<h2>Schwimmen · CSS</h2><p class="muted">Critical Swim Speed als Pace pro 100 m. Daraus entstehen Technik-, Race- und Schwellen-Paces.</p>${inp('Aktuelle CSS (mm:ss / 100 m) *', 'css', OB.css, 'placeholder="1:45" inputmode="text" autocapitalize="off" autocorrect="off"')}
     <div class="card mini"><p class="eyebrow">CSS aus Test berechnen</p><div class="fields">${inp('400 m (mm:ss)', 't400', OB.t400, 'placeholder="6:10"')}${inp('200 m (mm:ss)', 't200', OB.t200, 'placeholder="2:55"')}</div><button class="btn ghost sm" data-act="obCss">Berechnen &amp; übernehmen</button></div>`;
-  if (s === 5) body = `<h2>Herzfrequenz-Zonen</h2><p class="muted">Deine 5 Garmin-Zonen (Garmin Connect → Benutzereinstellungen → Herzfrequenzbereiche).</p><div class="hrgrid">${OB.hr.map((r, i) => `<div class="hrrow"><span>${hrTemplate(i)}</span><input data-ob="hr.${i}.0" value="${esc(r[0])}" inputmode="numeric" placeholder="von"><em>–</em><input data-ob="hr.${i}.1" value="${esc(r[1])}" inputmode="numeric" placeholder="bis"></div>`).join('')}</div>`;
-  if (s === 6) body = `<h2>Lauf-Schwelle <small class="opt">optional</small></h2><p class="muted">Deine aktuelle Schwellen-Pace (z. B. aus dem Lauftest in Woche 1). Damit zeigt die App zusätzlich Pace-Bereiche. Ohne Angabe steuerst du den Lauf per HF und RPE – wie im Plan.</p>${inp('Schwellen-Pace (mm:ss / km)', 'runThr', OB.runThr, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}`;
-  if (s === 7) {
-    const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
-    if (r.err) body = `<h2>Fast fertig</h2><p class="warn">${esc(r.err)}</p>`;
-    else {
-      const z = r.z; const start = planStartFor(OB.raceDate); const d = diffDays(start, todayIso());
-      body = `<h2>Alles bereit, ${esc(OB.name.split(' ')[0])}</h2><div class="card mini calc-card"><p class="eyebrow">Plan</p><p><b>${esc(fmtDateLong(start))}</b> bis <b>${esc(fmtDateLong(OB.raceDate))}</b><br><span class="muted small">${esc(OB.raceName)} · ${d > 0 ? `Start in ${d} Tagen` : d === 0 ? 'Start heute' : `Einstieg in Woche ${Math.floor(-d / 7) + 1}`}</span></p></div>
-      <div class="card mini"><p class="eyebrow">Deine Zonen</p><div class="ztable">${Zn.bike(z).slice(0, 4).map(b => `<div class="zr c-bike"><span>${b.name}</span><em>${b.lo}–${b.hi} %</em><b>${b.wlo}–${b.whi} W</b></div>`).join('')}${Zn.swim(z).slice(0, 2).map(x => `<div class="zr c-swim"><span>${x.name}</span><b>${paceRange(x.plo, x.phi)}</b></div>`).join('')}${Zn.run(z).slice(0, 3).map(x => `<div class="zr c-run"><span>${x.name}</span><b>HF ${rng(x.hr[0], x.hr[1])}</b></div>`).join('')}</div></div>`;
+  if (id === 'hr') body = `<h2>Herzfrequenz-Zonen</h2><p class="muted">Deine 5 Garmin-Zonen (Garmin Connect → Benutzereinstellungen → Herzfrequenzbereiche).</p><div class="hrgrid">${OB.hr.map((r, i) => `<div class="hrrow"><span>${hrTemplate(i)}</span><input data-ob="hr.${i}.0" value="${esc(r[0])}" inputmode="numeric" placeholder="von"><em>–</em><input data-ob="hr.${i}.1" value="${esc(r[1])}" inputmode="numeric" placeholder="bis"></div>`).join('')}</div>`;
+  if (id === 'runthr') body = `<h2>Lauf-Schwelle <small class="opt">optional</small></h2><p class="muted">Deine aktuelle Schwellen-Pace (z. B. aus dem Lauftest in Woche 1). Damit zeigt die App zusätzlich Pace-Bereiche. Ohne Angabe steuerst du den Lauf per HF und RPE – wie im Plan.</p>${inp('Schwellen-Pace (mm:ss / km)', 'runThr', OB.runThr, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}`;
+  if (id === 'summary') {
+    const start = planStartFor(OB.raceDate); const d = diffDays(start, todayIso());
+    const when = d > 0 ? `Start in ${d} Tagen` : d === 0 ? 'Start heute' : `Einstieg in Woche ${Math.floor(-d / 7) + 1}`;
+    const planCard = `<div class="card mini calc-card"><p class="eyebrow">Plan</p><p><b>${esc(fmtDateLong(start))}</b> bis <b>${esc(fmtDateLong(OB.raceDate))}</b><br><span class="muted small">${esc(PM.askEventName ? OB.raceName : PM.card.title)} · ${when}</span></p></div>`;
+    if (PM.zoneModel === 'ftp') {
+      const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
+      if (r.err) body = `<h2>Fast fertig</h2><p class="warn">${esc(r.err)}</p>`;
+      else {
+        const z = r.z;
+        body = `<h2>Alles bereit, ${esc(OB.name.split(' ')[0])}</h2>${planCard}
+        <div class="card mini"><p class="eyebrow">Deine Zonen</p><div class="ztable">${Zn.bike(z).slice(0, 4).map(b => `<div class="zr c-bike"><span>${b.name}</span><em>${b.lo}–${b.hi} %</em><b>${b.wlo}–${b.whi} W</b></div>`).join('')}${Zn.swim(z).slice(0, 2).map(x => `<div class="zr c-swim"><span>${x.name}</span><b>${paceRange(x.plo, x.phi)}</b></div>`).join('')}${Zn.run(z).slice(0, 3).map(x => `<div class="zr c-run"><span>${x.name}</span><b>HF ${rng(x.hr[0], x.hr[1])}</b></div>`).join('')}</div></div>`;
+      }
+    } else {
+      body = `<h2>Alles bereit, ${esc(OB.name.split(' ')[0])}</h2>${planCard}<div class="card mini"><p class="eyebrow">So trainierst du</p><p class="small">Alle Einheiten nach Gefühl (RPE) und Sprechtest – ohne Watt, Pace oder HF-Zonen. Gehpausen sind Teil des Plans. Nach jedem Training trägst du kurz Dauer und RPE ein.</p></div>`;
     }
   }
-  const first = s === 0, last = s === OB_STEPS - 1;
-  return `<div class="ob">${dots}<div class="ob-body">${body}</div><div id="obErr" class="err"></div><div class="btns ob-btns">${first ? '' : '<button class="btn ghost" data-act="obBack">Zurück</button>'}<button class="btn primary" data-act="${last ? 'obFinish' : 'obNext'}">${first ? 'Los geht’s' : last ? 'Plan starten' : 'Weiter'}</button></div></div>`;
+  const first = idx === 0, last = id === steps[steps.length - 1];
+  const btns = id === 'choose' ? '' : `<div class="btns ob-btns"><button class="btn ghost" data-act="obBack">Zurück</button><button class="btn primary" data-act="${last ? 'obFinish' : 'obNext'}">${id === 'intro' ? 'Los geht’s' : last ? 'Plan starten' : 'Weiter'}</button></div>`;
+  return `<div class="ob">${dots}<div class="ob-body">${body}</div><div id="obErr" class="err"></div>${btns}</div>`;
 }
 function obFtpPrev() {
   const f = num(OB.ftp); if (!f || f < 80 || f > 600) return '';
@@ -101,7 +119,7 @@ function setPath(path, val) { const p = path.split('.'); if (p[0] === 'hr') OB.h
 document.addEventListener('input', e => {
   const k = e.target.dataset && e.target.dataset.ob; if (!k) return;
   setPath(k, e.target.value);
-  if (k === 'raceDate' || k === 'raceName') { if (k === 'raceDate') { const el = $('#obRaceInfo'); if (el) { const tmp = document.createElement('div'); tmp.innerHTML = obStepHtml(); el.innerHTML = $('#obRaceInfo', tmp).innerHTML; } } }
+  if (k === 'raceDate') { const el = $('#obRaceInfo'); if (el) el.innerHTML = obEndInfo(); }
   if (k === 'ftp') { const el = $('#obFtp'); if (el) el.innerHTML = obFtpPrev(); }
 });
 document.addEventListener('change', e => {
@@ -170,13 +188,24 @@ const actions = {
   closeSheet: () => closeSheet(),
   exportFit(t) { const s = findSession(t.dataset.sid); if (FIT.exportSession(s)) fitHint(); else toast('Für diese Einheit ist kein Export möglich.', 'err'); },
   exportWeek(t) { const n = FIT.exportWeek(+t.dataset.week); if (n) { toast(`${n} Workouts exportiert.`, 'ok'); fitHint(); } else toast('Keine exportierbaren Einheiten.', 'err'); },
-  obNext() { const e = obErr(OB.step); if (e) { $('#obErr').textContent = e; shake('.ob-body'); return; } OB.step++; renderOB(); },
-  obBack() { OB.step = Math.max(0, OB.step - 1); renderOB(); },
+  pickPlan(t) {
+    const id = t.dataset.plan; if (OB.plan !== id) { OB.raceDate = ''; OB.raceName = ''; }
+    OB.plan = id; usePlan(id);
+    if (!OB.raceDate && PM.defaultEnd) OB.raceDate = PM.defaultEnd;
+    if (!OB.raceName) OB.raceName = PM.eventName;
+    OB.step = 'intro'; renderOB();
+  },
+  obNext() { const e = obErr(OB.step); if (e) { $('#obErr').textContent = e; shake('.ob-body'); return; } const st = obSteps(); OB.step = st[Math.min(st.length - 1, st.indexOf(OB.step) + 1)]; renderOB(); },
+  obBack() { const st = obSteps(); OB.step = st[Math.max(0, st.indexOf(OB.step) - 1)]; renderOB(); },
   obCss() { const a = parseMMSS(OB.t400), b = parseMMSS(OB.t200); if (!a || !b || a <= b) { $('#obErr').textContent = 'Bitte 400 m und 200 m Zeiten (mm:ss) eintragen – 400 m muss länger dauern.'; return; } OB.css = fmtMMSS(Zn.cssFromTests(a, b)); renderOB(); toast('CSS berechnet: ' + OB.css + ' /100 m', 'ok'); },
   obFinish() {
-    const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
-    if (r.err) { $('#obErr').textContent = r.err; return; }
-    initState({ name: OB.name.trim(), weight: num(OB.weight), raceName: OB.raceName.trim(), raceDate: OB.raceDate }, r.z);
+    let zones = null;
+    if (PM.zoneModel === 'ftp') {
+      const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
+      if (r.err) { $('#obErr').textContent = r.err; return; }
+      zones = r.z;
+    }
+    initState(OB.plan, { name: OB.name.trim(), weight: num(OB.weight), raceName: PM.askEventName ? OB.raceName.trim() : PM.eventName, raceDate: OB.raceDate }, zones);
     location.hash = '#/'; boot();
   },
   zoneUpdate() { closeSheet(); openZoneUpdate(); },
@@ -205,9 +234,10 @@ const actions = {
       l.minutes = n('minutes'); if (!(l.minutes > 0)) return toast('Bitte die tatsächliche Dauer eintragen.', 'err');
       l.rpe = num(rad(form, 'rpe')); if (!l.rpe) return toast('Bitte den RPE-Wert wählen.', 'err');
       if ((s.hard || s.test) && !rad(form, 'stable')) return toast('Bitte angeben, ob die Qualität stabil blieb.', 'err');
+      if (s.testKind === '5k' && !parseMMSS(val(form, 't5k'))) return toast('Bitte die Zeit für 5 km (mm:ss) eintragen.', 'err');
     } else l.minutes = 0;
-    ['dist', 'avgP', 'np', 'cad', 'avgHr', 'qualMin', 'raceMin', 'carbs', 'testFtp'].forEach(k => { const v = n(k); if (v != null) l[k] = v; });
-    ['pace', 't400', 't200', 'testPace', 'notes'].forEach(k => { const v = val(form, k); if (v) l[k] = v; });
+    ['dist', 'avgP', 'np', 'cad', 'avgHr', 'qualMin', 'raceMin', 'carbs', 'testFtp', 'contRun'].forEach(k => { const v = n(k); if (v != null) l[k] = v; });
+    ['pace', 't400', 't200', 'testPace', 't5k', 'notes'].forEach(k => { const v = val(form, k); if (v) l[k] = v; });
     ['stable', 'gi', 'coachOk'].forEach(k => { const v = rad(form, k); if (v) l[k] = v; });
     const log = getLog(date);
     if (log.complete) reopenDay(date);
@@ -215,9 +245,9 @@ const actions = {
     toast('Einheit gespeichert.', 'ok');
     // Test-Ergebnisse -> Zonen vorschlagen
     let pre = null, why = '';
-    if (l.t400 && l.t200) { const a = parseMMSS(l.t400), b = parseMMSS(l.t200); if (a && b && a > b) { const css = Math.round(Zn.cssFromTests(a, b)); if (css !== S.zones.css) { pre = { css: fmtMMSS(css) }; why = `Aus deinem Test ergibt sich eine CSS von ${fmtMMSS(css)}/100 m.`; } } }
-    if (l.testFtp && l.testFtp !== S.zones.ftp) { pre = { ...(pre || {}), ftp: l.testFtp }; why = (why ? why + ' ' : '') + `Dein Testergebnis: FTP ${l.testFtp} W.`; }
-    if (l.testPace) { const p = parseMMSS(l.testPace); if (p) { pre = { ...(pre || {}), runThr: fmtMMSS(p) }; why = (why ? why + ' ' : '') + `Schwellen-Pace ${fmtMMSS(p)}/km.`; } }
+    if (S.zones && l.t400 && l.t200) { const a = parseMMSS(l.t400), b = parseMMSS(l.t200); if (a && b && a > b) { const css = Math.round(Zn.cssFromTests(a, b)); if (css !== S.zones.css) { pre = { css: fmtMMSS(css) }; why = `Aus deinem Test ergibt sich eine CSS von ${fmtMMSS(css)}/100 m.`; } } }
+    if (S.zones && l.testFtp && l.testFtp !== S.zones.ftp) { pre = { ...(pre || {}), ftp: l.testFtp }; why = (why ? why + ' ' : '') + `Dein Testergebnis: FTP ${l.testFtp} W.`; }
+    if (S.zones && l.testPace) { const p = parseMMSS(l.testPace); if (p) { pre = { ...(pre || {}), runThr: fmtMMSS(p) }; why = (why ? why + ' ' : '') + `Schwellen-Pace ${fmtMMSS(p)}/km.`; } }
     render(false);
     if (pre) setTimeout(() => openZoneUpdate(pre, why + ' Zonen jetzt übernehmen?'), 300);
   },
@@ -226,23 +256,27 @@ const actions = {
     const log = getLog(date);
     const pending = dm.sessions.filter(s => effective(s).mode !== 'rest' && !(log.sessions[s.id] && log.sessions[s.id].status));
     if (pending.length) { toast('Bitte zuerst alle Einheiten eintragen.', 'err'); const el = document.getElementById(pending[0].id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-    const c = {};
-    c.sleep = num(val(form, 'sleep')); if (c.sleep == null || c.sleep < 0 || c.sleep > 16) return toast('Bitte die Schlafdauer (h) eintragen.', 'err');
-    c.fatigue = num(rad(form, 'fatigue')); if (!c.fatigue) return toast('Bitte die Müdigkeit (1–5) wählen.', 'err');
-    c.pain = rad(form, 'pain'); if (!c.pain) return toast('Bitte Schmerzen angeben.', 'err');
-    c.painArea = val(form, 'painArea') || 'all';
-    c.illness = rad(form, 'illness'); if (!c.illness) return toast('Bitte Krankheitszeichen angeben.', 'err');
+    const c = {}; const K = PM.checks;
+    if (K.includes('autoreg') || K.includes('adapt')) {
+      c.sleep = num(val(form, 'sleep')); if (c.sleep == null || c.sleep < 0 || c.sleep > 16) return toast('Bitte die Schlafdauer (h) eintragen.', 'err');
+      c.fatigue = num(rad(form, 'fatigue')); if (!c.fatigue) return toast('Bitte die Müdigkeit (1–5) wählen.', 'err');
+      c.pain = rad(form, 'pain'); if (!c.pain) return toast('Bitte Schmerzen angeben.', 'err');
+      c.painArea = val(form, 'painArea') || 'all';
+      c.illness = rad(form, 'illness'); if (!c.illness) return toast('Bitte Krankheitszeichen angeben.', 'err');
+    }
+    if (K.includes('adapt')) { c.energy = rad(form, 'energy') || 'no'; c.weekHard = rad(form, 'weekHard') || 'no'; }
     c.extraMin = num(val(form, 'extraMin')) || 0;
-    c.junkOk = rad(form, 'junkOk'); if (!c.junkOk) return toast('Bitte den Junk-Mile-Check beantworten.', 'err');
+    if (K.includes('junk')) { c.junkOk = rad(form, 'junkOk'); if (!c.junkOk) return toast('Bitte den Junk-Mile-Check beantworten.', 'err'); }
     if (dm.rest) { c.restKept = rad(form, 'restKept'); if (!c.restKept) return toast('Bitte angeben, ob der Ruhetag eingehalten wurde.', 'err'); }
-    if (dm.sessions.some(s => s.hard && effective(s).mode !== 'rest')) { c.specOk = rad(form, 'specOk'); if (!c.specOk) return toast('Bitte die Spezifität (Kernintention) beantworten.', 'err'); }
+    if (K.includes('spec') && dm.sessions.some(s => s.hard && effective(s).mode !== 'rest')) { c.specOk = rad(form, 'specOk'); if (!c.specOk) return toast('Bitte die Spezifität (Kernintention) beantworten.', 'err'); }
+    if (K.includes('intensity') && !dm.rest) { c.specOk = rad(form, 'specOk'); if (!c.specOk) return toast('Bitte die Intensität bewerten.', 'err'); }
     log.check = c; const adj = finalizeDay(date);
     showDayResult(date, adj);
   },
   async reopenDay(t) { reopenDay(t.dataset.date); render(false); },
   saveSettings() {
-    const f = $('#setform'); const name = val(f, 'name'), w = num(val(f, 'weight')), rn = val(f, 'raceName'), rd = val(f, 'raceDate');
-    if (!name || !w || !rn || !rd) return toast('Bitte alle Felder ausfüllen.', 'err');
+    const f = $('#setform'); const name = val(f, 'name'), w = num(val(f, 'weight')), rn = PM.askEventName ? val(f, 'raceName') : PM.eventName, rd = val(f, 'raceDate');
+    if (!name || !rn || !rd || (PM.zoneModel === 'ftp' && !w)) return toast('Bitte alle Felder ausfüllen.', 'err');
     if (rd !== S.profile.raceDate) { S.startDate = planStartFor(rd); }
     S.profile = { name, weight: w, raceName: rn, raceDate: rd }; commit(); toast('Gespeichert.', 'ok'); render(false);
   },
@@ -251,14 +285,14 @@ const actions = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `triathlon-backup-${todayIso()}.json`; document.body.appendChild(a); a.click(); a.remove();
     toast('Backup erstellt.', 'ok');
   },
-  async resetAll() { if (await askConfirm('Alles löschen?', 'Alle Daten (Profil, Zonen, Einträge) werden unwiderruflich von diesem Gerät gelöscht. Erstelle vorher ein Backup, wenn du sie behalten willst.', 'Ja, alles löschen', true)) { Store.clear(); S = null; Object.assign(OB, { step: 0, name: '', weight: '', raceDate: '', ftp: '', css: '', hr: [['', ''], ['', ''], ['', ''], ['', ''], ['', '']], runThr: '' }); location.hash = '#/'; boot(); } }
+  async resetAll() { if (await askConfirm('Alles löschen?', 'Alle Daten (Profil, Zonen, Einträge) werden unwiderruflich von diesem Gerät gelöscht. Erstelle vorher ein Backup, wenn du sie behalten willst.', 'Ja, alles löschen', true)) { Store.clear(); S = null; Object.assign(OB, OB_FRESH()); location.hash = '#/'; boot(); } }
 };
 const changeActions = {
   setLang(input) { S.lang = input.value; commit(); render(false); toast(S.lang === 'en' ? 'Plan texts: original (EN)' : 'Plan-Texte: Deutsch', 'ok'); },
   importFile: importActivity,
   async importData(input) {
     const f = input.files[0]; if (!f) return;
-    try { const d = JSON.parse(await f.text()); if (!d.profile || !d.zones || !d.startDate || !d.logs) throw 0; Store.save(d); S = d; toast('Backup geladen.', 'ok'); location.hash = '#/'; boot(); } catch (e) { toast('Diese Datei ist kein gültiges Backup.', 'err'); }
+    try { const d = JSON.parse(await f.text()); if (!d.profile || !d.startDate || !d.logs) throw 0; if (!d.planId) d.planId = 'tri70'; if (!d.inserts) d.inserts = []; if (!d.adjustments) d.adjustments = []; if (!window.PLANS[d.planId]) throw 0; Store.save(d); S = d; usePlan(d.planId); toast('Backup geladen.', 'ok'); location.hash = '#/'; boot(); } catch (e) { toast('Diese Datei ist kein gültiges Backup.', 'err'); }
     input.value = '';
   }
 };
@@ -293,7 +327,7 @@ function render(resetScroll = true) {
   const y = window.scrollY;
   if (!p.length) html = viewHome();
   else if (p[0] === 'plan') { html = viewPlan(); tab = 'plan'; }
-  else if (p[0] === 'week') { html = viewWeek(+p[1] || Math.max(1, Math.min(20, curWeek()))); tab = 'plan'; }
+  else if (p[0] === 'week') { html = viewWeek(+p[1] || Math.max(1, Math.min(TW(), curWeek()))); tab = 'plan'; }
   else if (p[0] === 'day') { html = viewDay(p[1] || todayIso()); tab = (p[1] === todayIso()) ? 'home' : 'plan'; }
   else if (p[0] === 'perf') { html = viewPerf(); tab = 'perf'; }
   else if (p[0] === 'zones') { html = viewZones(); tab = 'zones'; }
@@ -303,6 +337,7 @@ function render(resetScroll = true) {
   nav.classList.remove('hide'); view.className = 'view';
   view.innerHTML = html;
   $$('.tabitem', nav).forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
+  const zt = $('.tabitem[data-tab="zones"] span', nav); if (zt) zt.textContent = PM.zonesTab;
   initCharts(view);
   if (resetScroll && h !== lastRoute) window.scrollTo(0, 0); else window.scrollTo(0, y);
   lastRoute = h;
@@ -313,7 +348,10 @@ window.addEventListener('hashchange', () => render());
 function boot() {
   S = Store.load();
   if (!S) { renderOB(); return; }
+  if (!S.planId) S.planId = 'tri70';
   if (!S.adjustments) S.adjustments = [];
+  if (!S.inserts) S.inserts = [];
+  usePlan(S.planId);
   render();
   if (!zonePopupShown && zonesDue()) {
     zonePopupShown = true;
