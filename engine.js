@@ -66,7 +66,7 @@ function buildSession(raw, w, dayKey, idx) {
   return {
     id: `w${w}-${dayKey}-${idx}`, week: w, dayKey, idx, raw, title: raw.title, name: raw.name, disc: raw.disc,
     durMin: raw.dur, test: !!raw.test, testKind: raw.testKind || null, quality: !!raw.quality, key: !!raw.key, hard: !!raw.hard,
-    strides: !!raw.strides, long: !!raw.long, brick: !!raw.brick, q: raw.q, r: raw.r
+    strides: !!raw.strides, long: !!raw.long, brick: !!raw.brick, q: raw.q, r: raw.r, split: raw.split || null
   };
 }
 function weekSessions(w) {
@@ -87,7 +87,7 @@ const isRestDay = (w, dk) => !!planWeekData(w).days[dk].rest;
 function dayModel(date) {
   const l = locate(date); if (!l) return null;
   const wk = planWeekData(l.week);
-  return { ...l, pw: planWeekOf(l.week), repeat: isRepeatWeek(l.week), wk, rest: isRestDay(l.week, l.dayKey), restText: wk.days[l.dayKey].text, sessions: daySess(l.week, l.dayKey) };
+  return { ...l, pw: planWeekOf(l.week), repeat: isRepeatWeek(l.week), wk, rest: isRestDay(l.week, l.dayKey), restLike: wk.days[l.dayKey].restLike || '', restText: wk.days[l.dayKey].text, sessions: daySess(l.week, l.dayKey) };
 }
 const findSession = id => { const m = id.match(/^w(\d+)-(\w+)-(\d+)$/); return m ? (daySess(+m[1], m[2])[+m[3]] || null) : null; };
 const dateOfSession = s => dateFor(s.week, DAYKEYS.indexOf(s.dayKey));
@@ -133,6 +133,8 @@ const weekOfTargets = (targets, fallbackDate) => {
   return (locate(fallbackDate) || { week: 1 }).week;
 };
 const lastDeload = pw => { const d = PL.weeks.filter(w => w.phase === PM.rules.deloadPhase && w.n <= pw).pop(); return d ? d.n : 1; };
+/* Verpflegungsziel (g KH/h): im Plan hinterlegt oder Standard für lange Radeinheiten */
+const carbTarget = s => s.raw.carb || (PM.rules.carbDefault && (s.disc === 'bike' || s.brick) && ((s.split ? s.split.bike : s.durMin) || 0) > 90 ? PM.rules.carbDefault : null);
 const missedCount = c => {
   let n = 0;
   for (let i = 0; i < 7; i++) { const lg = peekLog(dateFor(c, i)); if (!lg) continue; for (const s of daySess(c, DAYKEYS[i])) { const l = lg.sessions[s.id]; if (l && l.status === 'no' && effective(s).mode !== 'rest') n++; } }
@@ -151,7 +153,11 @@ function evaluateDay(date) {
   const easyTxt = M.easy;
 
   // 1) Krankheit
-  if (c.illness === 'yes') {
+  if (c.illness === 'yes' && rules.illnessMode === 'easy') {
+    const t = hardNext(3);
+    if (t.length) push({ src: 'illness', kind: 'easy', factor: 1, targets: ids(t), weekNo: weekOfTargets(ids(t), date),
+      what: `Harte Einheiten der nächsten 3 Tage werden locker (${easyTxt}), Umfang bleibt`, why: M.illnessYes + ' Nichts nachholen.' });
+  } else if (c.illness === 'yes') {
     const t1 = upcoming(date, 1);
     if (t1.length) push({ src: 'illness', kind: 'rest', targets: ids(t1), weekNo: weekOfTargets(ids(t1), date),
       what: 'Nächster Trainingstag: Ruhe statt Einheiten', why: M.illnessYes });
@@ -277,12 +283,12 @@ function evaluateDay(date) {
     push({ src: 'extra', kind: 'note', targets: [], weekNo: dm.week, what: `${c.extraMin} min Zusatztraining außerhalb des Plans`, why: M.extra });
     if (c.extraMin >= 45) {
       const t = upcoming(date, 1);
-      if (t.length) push({ src: 'extra', kind: 'reduce', factor: 0.9, lower: true, targets: ids(t), weekNo: weekOfTargets(ids(t), date), what: 'Nächster Tag ca. 10 % kürzer', why: `Viel ungeplanter Zusatzumfang – Wochenumfang bleibt im Rahmen (max. ${rules.maxHours} h).` });
+      if (t.length) push({ src: 'extra', kind: 'reduce', factor: 0.9, lower: true, targets: ids(t), weekNo: weekOfTargets(ids(t), date), what: 'Nächster Tag ca. 10 % kürzer', why: `Viel ungeplanter Zusatzumfang – Wochenumfang bleibt im Rahmen (max. ${(dm.wk.frame && dm.wk.frame[1]) || rules.maxHours} h).` });
     }
   }
 
   // 7) Ruhetag nicht eingehalten
-  if (dm.rest && c.restKept === 'no') {
+  if ((dm.rest || dm.restLike) && c.restKept === 'no') {
     const t = hardNext(2).slice(0, 1);
     push({ src: 'rest', kind: t.length ? 'reduce' : 'note', factor: 0.9, lower: true, targets: ids(t), weekNo: weekOfTargets(ids(t), date),
       what: t.length ? 'Nächste Qualitätseinheit ~10 % kürzer, unteres Ende der Vorgaben' : 'Ruhetag nicht eingehalten', why: M.restBroken });
@@ -291,24 +297,27 @@ function evaluateDay(date) {
   // 8) Ernährung (nur Pläne mit Verpflegungsproben)
   if (rules.nutrition) for (const s of dm.sessions) {
     const l = log.sessions[s.id];
-    if (!l || !(s.long && s.disc === 'bike')) continue;
+    const tgt = carbTarget(s); const legacy = !rules.carbDefault && s.long && s.disc === 'bike';
+    if (!l || !(tgt || legacy)) continue;
     const bad = l.gi === 'problems' || l.gi === 'some';
-    const low = l.carbs != null && l.carbs < 50 && (s.durMin || 0) >= 150;
+    const low = tgt ? (l.carbs != null && l.carbs < tgt[0]) : (l.carbs != null && l.carbs < 50 && (s.durMin || 0) >= 150);
     if (bad || low) {
-      const t = upcoming(date, 10, x => x.long && x.disc === 'bike').slice(0, 1);
+      const nxt = tgt ? upcoming(date, 14, x => carbTarget(x)) : upcoming(date, 10, x => x.long && x.disc === 'bike');
+      const t = nxt.slice(0, 1); const goal = tgt ? `${tgt[0]}–${tgt[1]}` : '50–70';
       push({ src: 'nutrition', kind: 'note', targets: ids(t), weekNo: weekOfTargets(ids(t), date),
-        what: bad ? 'Ernährung beim nächsten langen Radtraining anpassen' : 'Kohlenhydrat-Zufuhr beim nächsten langen Radtraining erhöhen',
-        why: bad ? 'Magen-Darm-Probleme gemeldet: Menge auf ~50 g/h begrenzen, Produkt/Trinkkonzentration testen, dann langsam steigern. Ziel bleibt 50–70 g/h.' : `Nur ${l.carbs} g/h aufgenommen. Ziel laut Plan: 50–70 g/h und regelmäßiges Trinken.` });
+        what: bad ? 'Ernährung bei der nächsten langen Einheit anpassen' : 'Kohlenhydrat-Zufuhr bei der nächsten langen Einheit erhöhen',
+        why: bad ? `Magen-Darm-Probleme gemeldet: Menge vorübergehend etwas senken, Produkt/Trinkkonzentration testen, dann langsam steigern. Ziel bleibt ${goal} g/h.` : `Nur ${l.carbs} g/h aufgenommen. Ziel laut Plan: ${goal} g/h und regelmäßiges Trinken.` });
     }
   }
 
   // 9) Wochenende: Wochenumfang
-  if (dm.dayIdx === 6 && rules.maxHours) {
+  const capH = (dm.wk.frame && dm.wk.frame[1]) || rules.maxHours;
+  if (dm.dayIdx === 6 && capH) {
     const st = weekStats(dm.week);
-    if (st.minutes > rules.maxHours * 60 && dm.week < TW()) {
+    if (st.minutes > capH * 60 && dm.week < TW()) {
       const t = upcoming(date, 7, s => !s.hard);
       if (t.length) push({ src: 'volume', kind: 'reduce', factor: 0.9, lower: true, targets: ids(t), weekNo: weekOfTargets(ids(t), date),
-        what: 'Lockere Einheiten der Folgewoche ~10 % kürzer', why: `Wochenumfang ${fmtH(st.minutes)} h lag über dem Maximum von ${rules.maxHours} h.` });
+        what: 'Lockere Einheiten der Folgewoche ~10 % kürzer', why: `Wochenumfang ${fmtH(st.minutes)} h lag über dem Maximum von ${capH} h.` });
     }
   }
   return out;
@@ -354,9 +363,18 @@ function sessionActualMin(s) {
   return l.minutes != null ? l.minutes : (effective(s).dur || 0);
 }
 const isLongBike = s => s.disc === 'bike' && (PM.longBike === 'max' || s.long);
+const ZKEYS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
+/* Zonenzeit (min) einer Einheit: Plan-Zonenzeit, skaliert auf die tatsächliche Dauer; bei "locker statt hart" alles in Z2 */
+function sessionZoneMin(s, m, eff) {
+  const zz = s.raw.zonenzeit; if (!zz || !s.durMin) return null;
+  const k = m / s.durMin; const out = {};
+  for (const [z, v] of Object.entries(zz)) { const key = (eff.mode === 'easy' && ['Z3', 'Z4', 'Z5'].includes(z)) ? 'Z2' : z; out[key] = (out[key] || 0) + v * k; }
+  return out;
+}
 function weekStats(w) {
   const disc = {}; PM.discs.forEach(d => disc[d.k] = 0);
-  const st = { minutes: 0, disc, quality: 0, race: 0, longBike: null, longRun: null, done: 0, planned: 0, plannedMin: 0 };
+  const zone = {}; ZKEYS.forEach(k => zone[k] = 0);
+  const st = { minutes: 0, disc, zone, quality: 0, race: 0, longBike: null, longRun: null, done: 0, planned: 0, plannedMin: 0 };
   for (let i = 0; i < 7; i++) {
     const dk = DAYKEYS[i]; const date = dateFor(w, i); const log = peekLog(date);
     for (const s of daySess(w, dk)) {
@@ -366,11 +384,15 @@ function weekStats(w) {
       if (!l || !(l.status === 'yes' || l.status === 'partial')) continue;
       const m = l.minutes != null ? l.minutes : (eff.dur || 0);
       st.done++; st.minutes += m;
-      if (s.disc in st.disc) st.disc[s.disc] += m;
+      const bikeM = s.split ? m * s.split.bike / s.durMin : (s.disc === 'bike' ? m : 0);
+      const runM = s.split ? m * s.split.run / s.durMin : (s.disc === 'run' ? m : 0);
+      if (s.split) { if ('bike' in st.disc) st.disc.bike += bikeM; if ('run' in st.disc) st.disc.run += runM; }
+      else if (s.disc in st.disc) st.disc[s.disc] += m;
       st.quality += l.qualMin || 0; st.race += l.raceMin || 0;
-      if (isLongBike(s)) st.longBike = Math.max(st.longBike || 0, m);
-      if (s.disc === 'run') {
-        const v = PM.longRun === 'cont' ? l.contRun : (s.long ? m : null);
+      const zm = sessionZoneMin(s, m, eff); if (zm) for (const [z, v] of Object.entries(zm)) if (z in st.zone) st.zone[z] += v;
+      if ((s.disc === 'bike' || s.split) && (PM.longBike === 'max' || s.long) && bikeM) st.longBike = Math.max(st.longBike || 0, bikeM);
+      if (runM) {
+        const v = PM.longRun === 'cont' ? l.contRun : PM.longRun === 'max' ? runM : (s.long ? m : null);
         if (v != null) st.longRun = Math.max(st.longRun || 0, v);
       }
     }
@@ -386,8 +408,12 @@ function chartSeries() {
   const arr = f => Array.from({ length: M }, (_, i) => f(planWeekData(i + 1), i + 1));
   const ist = fn => arr((wk, c) => { if (c > upto) return null; const st = weekStats(c); if (c === upto && st.done === 0) return null; return fn(st, wk); });
   const keys = PM.discs.map(d => d.k);
+  const zoneH = d => Object.fromEntries(ZKEYS.map(k => [k, ((d || {})[k] || 0) / 60]));
+  // Phasen (für Hintergrundbänder) und Umfang-Rahmen je Kalenderwoche
+  const phases = []; for (let c = 1; c <= M; c++) { const g = planWeekData(c).group; if (!g) break; const last = phases[phases.length - 1]; if (last && last.label === g) last.b = c; else phases.push({ label: g, a: c, b: c }); }
   return {
-    M, cw: upto, planWeeks: arr((wk, c) => planWeekOf(c)),
+    M, cw: upto, planWeeks: arr((wk, c) => planWeekOf(c)), phases, frames: arr(w => w.frame || null),
+    zone: { plan: arr(w => zoneH(w.zoneTime)), ist: ist(st => zoneH(st.zone)) },
     volume: { plan: arr(w => w.hours), ist: ist(st => +(st.minutes / 60).toFixed(2)) },
     disc: { plan: arr((w, c) => PL.disc[planWeekOf(c) - 1]), ist: ist(st => Object.fromEntries(keys.map(k => [k, st.disc[k] / 60]))) },
     quality: { plan: arr(w => w.quality), planRace: arr(w => w.race), ist: ist(st => st.quality), istRace: ist(st => st.race) },
@@ -400,7 +426,7 @@ function zoneDiff(a, b) {
   const d = [];
   if (a.ftp !== b.ftp) d.push({ k: 'FTP', from: `${a.ftp} W`, to: `${b.ftp} W`, pct: (b.ftp - a.ftp) / a.ftp });
   if (a.css !== b.css) d.push({ k: 'CSS', from: `${fmtMMSS(a.css)}/100 m`, to: `${fmtMMSS(b.css)}/100 m`, pct: (a.css - b.css) / a.css });
-  a.hr.forEach((r, i) => { if (r[0] !== b.hr[i][0] || r[1] !== b.hr[i][1]) d.push({ k: `HF Z${i + 1}`, from: `${r[0]}–${r[1]}`, to: `${b.hr[i][0]}–${b.hr[i][1]}` }); });
+  if (a.hr && b.hr) a.hr.forEach((r, i) => { if (r[0] !== b.hr[i][0] || r[1] !== b.hr[i][1]) d.push({ k: `HF Z${i + 1}`, from: `${r[0]}–${r[1]}`, to: `${b.hr[i][0]}–${b.hr[i][1]}` }); });
   if ((a.runThr || 0) !== (b.runThr || 0)) d.push({ k: 'Lauf-Schwelle', from: a.runThr ? fmtMMSS(a.runThr) + '/km' : '–', to: b.runThr ? fmtMMSS(b.runThr) + '/km' : '–' });
   return d;
 }
@@ -425,7 +451,7 @@ function applyZoneUpdate(newZ, reason) {
   return diff;
 }
 const zonesDue = (today = todayIso()) => {
-  if (!S || !S.zones || PM.zoneModel !== 'ftp') return false;
+  if (!S || !S.zones || PM.zoneModel === 'rpe') return false;
   if (curWeek(today) === 0 || curWeek(today) === TW() + 1) return false;
   if (diffDays(today, S.zones.updated) < 7) return false;
   return S.snoozeZone !== today;

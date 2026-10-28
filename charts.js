@@ -1,7 +1,7 @@
 ﻿/* SVG-Diagramme: Plan (laut PDF) vs. Ist – für beliebig viele Wochen */
 'use strict';
 const CH = {};
-const COL = { swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', mob: '#b48cff', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24', q: '#c084fc', v: '#9db8ff' };
+const COL = { Z1: '#9dc4ee', Z2: '#6aa84f', Z3: '#f1c232', Z4: '#e69138', Z5: '#e00000', swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', mob: '#b48cff', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24', q: '#c084fc', v: '#9db8ff' };
 const CW_ = 360, CH_ = 240, ML = 36, MR = 12, MT = 14, MB = 40;
 let CHN = 20; // Anzahl Wochen im aktuellen Diagramm
 const setChartN = n => { CHN = n; };
@@ -39,13 +39,33 @@ function frame(id, sc, yFmt, xf) {
 const cwMarker = (cw, xf) => cw >= 1 && cw <= CHN ? `<line class="today" x1="${xf(cw - 1).toFixed(1)}" x2="${xf(cw - 1).toFixed(1)}" y1="${MT}" y2="${CH_ - MB}"/>` : '';
 const ceilLine = (v, yf, label) => v ? `<line class="ceil" x1="${ML}" x2="${CW_ - MR}" y1="${yf(v).toFixed(1)}" y2="${yf(v).toFixed(1)}"/>${label ? `<text class="ax cl" x="${ML + 4}" y="${(yf(v) - 4).toFixed(1)}">${label}</text>` : ''}` : '';
 
+/* Phasen-Hintergrund und Umfang-Rahmen (frames je Woche: [lo,hi] oder null) */
+function bandsSvg(o, xf, half, yf) {
+  let g = '';
+  (o.bands || []).forEach((b, i) => {
+    const x0 = xf(b.a - 1) - half, x1 = xf(b.b - 1) + half;
+    if (i % 2 === 0) g += `<rect class="band" x="${x0.toFixed(1)}" y="${MT}" width="${(x1 - x0).toFixed(1)}" height="${CH_ - MB - MT}"/>`;
+    g += `<text class="ax bl" x="${((x0 + x1) / 2).toFixed(1)}" y="${MT + 9}" text-anchor="middle">${b.label}</text>`;
+  });
+  if (o.frames && yf) {
+    let start = null;
+    const flush = (i) => { if (start === null) return; const f = o.frames[start], x0 = xf(start) - half, x1 = xf(i - 1) + half;
+      g += `<line class="frame hi" x1="${x0.toFixed(1)}" x2="${x1.toFixed(1)}" y1="${yf(f[1]).toFixed(1)}" y2="${yf(f[1]).toFixed(1)}"/><line class="frame lo" x1="${x0.toFixed(1)}" x2="${x1.toFixed(1)}" y1="${yf(f[0]).toFixed(1)}" y2="${yf(f[0]).toFixed(1)}"/>`; start = null; };
+    o.frames.forEach((f, i) => { const prev = start === null ? null : o.frames[start]; const same = f && prev && f[0] === prev[0] && f[1] === prev[1]; if (!same) { flush(i); if (f) start = i; } });
+    flush(o.frames.length);
+  }
+  return g;
+}
+const frameMax = o => o.frames ? Math.max(0, ...o.frames.filter(Boolean).map(f => f[1])) : 0;
+
 /* Liniendiagramm mit 1..n Serien {color,plan[],ist[]} */
 function lineChart(id, series, o) {
   const all = []; series.forEach(s => { s.plan.forEach(v => all.push(v)); s.ist.forEach(v => v != null && all.push(v)); });
   if (o.ceiling) all.push(o.ceiling);
-  const sc = niceScale(o.min != null ? Math.min(o.min, ...all) : Math.min(...all), Math.max(...all), 5);
+  if (o.frames) all.push(frameMax(o));
+  const sc = niceScale(o.min != null ? Math.min(o.min, ...all) : Math.min(...all), Math.max(...all) + (o.bands ? (Math.max(...all) - (o.min || 0)) * 0.06 : 0), 5);
   const { g, yf } = frame(id, sc, o.yFmt, xLine);
-  let body = g + cwMarker(o.cw, xLine) + ceilLine(o.ceiling, yf, o.ceilLabel);
+  let body = g + bandsSvg(o, xLine, (xLine(1) - xLine(0)) / 2, yf) + cwMarker(o.cw, xLine) + ceilLine(o.ceiling, yf, o.ceilLabel);
   series.forEach(s => {
     body += `<path class="plan" d="${pathOf(s.plan, xLine, yf)}" stroke="${s.color}"/>`;
     s.plan.forEach((v, i) => body += `<circle class="pdot" cx="${xLine(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="2" fill="${s.color}"/>`);
@@ -64,10 +84,10 @@ function stackChart(id, planRows, istRows, o) {
   const keys = o.keys, colors = o.colors || COL;
   const tot = d => keys.reduce((a, k) => a + (d ? (d[k] || 0) : 0), 0);
   const maxV = Math.max(...planRows.map(tot), ...istRows.map(d => d ? tot(d) : 0), o.ceiling || 0);
-  const sc = niceScale(0, maxV, 5);
+  const sc = niceScale(0, maxV * (o.bands ? 1.08 : 1), 5);
   const { g, yf } = frame(id, sc, o.yFmt || (v => v), xBand);
   const bw = (CW_ - ML - MR) / CHN;
-  let body = g + cwMarker(o.cw, xBand) + ceilLine(o.ceiling, yf, o.ceilLabel);
+  let body = g + bandsSvg(o, xBand, bw / 2, yf) + cwMarker(o.cw, xBand) + ceilLine(o.ceiling, yf, o.ceilLabel);
   (o.vmarks || []).forEach(m => {
     const x = xBand(m.i) - bw / 2;
     body += `<line class="vmark" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${MT}" y2="${CH_ - MB}"/><text class="ax vl" text-anchor="end" x="${(x - 4).toFixed(1)}" y="${MT + 10}">${m.label}</text>`;

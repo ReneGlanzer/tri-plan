@@ -117,3 +117,56 @@ function zoneChips(disc, z) {
   if (disc === 'run' || disc === 'race') return Zn.run(z).map(r => chip('c-run', r.name, `HF ${rng(r.hr[0], r.hr[1])}` + (r.plo ? `<em>${runPaceRange(r.plo, r.phi)}</em>` : ''))).join('');
   return '';
 }
+
+/* ===== Zonenmodell "fts": FTP + Lauf-Schwellenpace S + CSS (70.3 – 26 Wochen) =====
+   Rad in % FTP, Lauf als s/km relativ zu S (positiv = langsamer), Schwimmen als s/100m relativ zu CSS. */
+const Z26 = {
+  bike: [['Z1', 0, 55, 'Regeneration / ein- & ausfahren'], ['Z2', 56, 75, 'Grundlage'], ['Z2+', 70, 75, 'oberes Z2'], ['K3', 75, 85, 'Kraftausdauer 55-65 U/min'],
+    ['Z3', 76, 87, 'Tempo'], ['RW', 78, 85, '70.3-Renn-Watt'], ['SS', 88, 94, 'Sweetspot'], ['SW', 95, 105, 'Schwelle'], ['VO2', 106, 120, 'VO2max']],
+  run: [['Z2', 45, 75, 'Grundlage'], ['Z3', 20, 35, 'Tempo'], ['RT', 10, 20, '70.3-Renntempo'], ['SW', -5, 5, 'Schwelle'], ['VO2', -25, -15, 'VO2max / 3-5 km-Tempo']],
+  swim: [['locker', 12, 15, 'Ein-/Ausschwimmen'], ['A', 5, 8, 'Ausdauer'], ['RT', 3, 5, '70.3-Renntempo'], ['CSS', 0, 0, 'Schwelle'], ['schnell', -5, -3, 'schneller als Schwelle']]
+};
+const Z26_ALIAS = { bike: { Z4: 'SS-SW', Z5: 'VO2' }, run: { Z4: 'SW', Z5: 'VO2' } };
+function z26Range(disc, code, z) {
+  if (!z) return null;
+  if (disc === 'bike') {
+    const a = Z26_ALIAS.bike[code];
+    if (a === 'SS-SW') return `${Zn.watts(z, 88)}–${Zn.watts(z, 105)} W`;
+    const d = Z26.bike.find(x => x[0] === (a || code)); if (!d) return null;
+    return d[0] === 'Z1' ? `< ${Zn.watts(z, 55)} W` : `${Zn.watts(z, d[1])}–${Zn.watts(z, d[2])} W`;
+  }
+  if (disc === 'run') {
+    if (!z.runThr) return null;
+    const d = Z26.run.find(x => x[0] === (Z26_ALIAS.run[code] || code)); if (!d) return null;
+    return runPaceRange(z.runThr + d[1], z.runThr + d[2]);
+  }
+  if (disc === 'swim') {
+    const d = Z26.swim.find(x => x[0] === code); if (!d) return null;
+    return d[1] === d[2] ? `${fmtMMSS(z.css)}/100 m` : paceRange(z.css + d[1], z.css + d[2]);
+  }
+  return null;
+}
+/* Eine Zeile der Ausführung/Zonen mit Watt-/Pace-Werten ergänzen. ctx: 'bike' | 'run' | 'swim' */
+function enrich26(text, ctx, z) {
+  if (!z || !ctx) return esc(text);
+  const calc = s => ` <span class="calc">${s}</span>`;
+  let re;
+  if (ctx === 'bike') re = /\b(Z1-Z2|Z2\+|Z1|Z2|Z3|Z4|Z5|K3|RW|SS|SW|VO2)(?![\w+])(?!\s*\()/g;
+  else if (ctx === 'run') re = /\b(Z2|Z3|Z4|Z5|RT|SW|VO2)(?![\w+])(?!\s*\()/g;
+  else re = /^\d+m / .test(text) ? /\b(locker|schnell|RT|CSS|A)\b(?!\s*\()/g : /(?!)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(text))) {
+    const code = m[1];
+    out += esc(text.slice(last, m.index + m[0].length)); last = m.index + m[0].length;
+    let r = null;
+    const before = text.slice(0, m.index); if (ctx === 'swim' && (before.match(/\(/g) || []).length > (before.match(/\)/g) || []).length) continue; // Klammerzusätze nicht ergänzen
+    if (code === 'Z1-Z2') r = `≤ ${Zn.watts(z, 75)} W`;
+    else r = z26Range(ctx, code, z);
+    if (r) out += calc(esc(r));
+  }
+  out += esc(text.slice(last));
+  // Legenden: "(56-75 % FTP)", "(S + 45-75 s/km)", "(CSS + 12-15 s/100m)"
+  return out.replace(/\((&lt; )?(\d{2,3})(?:-(\d{2,3}))? % FTP\)/g, (all, lt, a, b) => lt ? `(&lt; ${a} % FTP)${calc('&lt; ' + Zn.watts(z, +a) + ' W')}` : `(${a}${b ? '-' + b : ''} % FTP)${calc(Zn.watts(z, +a) + (b ? '–' + Zn.watts(z, +b) : '') + ' W')}`)
+    .replace(/\(S ([+−-]|±) (\d+)(?:-(\d+))? s\/km\)/g, (all, sg, a, b) => { if (!z.runThr) return all; const k = (sg === '+' ? 1 : sg === '±' ? 0 : -1); const lo = k === 0 ? -a : k * a, hi = k === 0 ? +a : k * (b || a); return all + calc(runPaceRange(z.runThr + Math.min(lo, hi), z.runThr + Math.max(lo, hi))); })
+    .replace(/\(CSS ([+−-]) (\d+)(?:-(\d+))? s\/100m\)/g, (all, sg, a, b) => { const k = sg === '+' ? 1 : -1; const x = k * a, y = k * (b || a); return all + calc(paceRange(z.css + Math.min(x, y), z.css + Math.max(x, y))); });
+}

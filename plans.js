@@ -10,7 +10,7 @@ window.PLANS = {
         facts: ['20 Wochen', '8–12 h pro Woche', 'Schwimmen · Rad · Lauf · Kraft'],
         needs: 'Du brauchst: aktuelle FTP, CSS und deine 5 Garmin-HF-Zonen.'
       },
-      zoneModel: 'ftp', zonesTab: 'Zonen', hasEnglish: true,
+      zoneModel: 'ftp', zonesTab: 'Zonen', hasEnglish: true, testWeeks: [1, 8, 12, 13, 17, 18],
       eventName: 'IRONMAN 70.3', askEventName: true, eventOffset: 0, defaultEnd: null,
       endKind: 'Rennen', endTitle: 'Dein Rennen', endField: 'Renndatum *', endLabel: 'Rennen',
       endIntro: 'Der 20-Wochen-Plan wird rückwärts vom Renntag berechnet.',
@@ -130,5 +130,63 @@ window.PLANS = {
       }
     },
     get data() { return window.PLAN_JEN; }
+  }
+,
+
+  tri26: {
+    meta: {
+      id: 'tri26',
+      card: {
+        title: 'Ironman 70.3 – 26 Wochen · 10 Stunden', tagline: 'Age-Group-Plan: Ø 7:50 h pro Woche, Spitze 10:05 h',
+        facts: ['26 Wochen', '6–10 h pro Woche', 'Schwimmen · Rad · Lauf · Kraft · Mobility'],
+        needs: 'Du brauchst: aktuelle FTP, Lauf-Schwellenpace (S) und CSS – oder teste vor Woche 1. Die Zonen berechnet die App daraus.'
+      },
+      zoneModel: 'fts', zonesTab: 'Zonen', hasEnglish: false, testWeeks: [4, 8, 12, 16, 20], exec: true,
+      eventName: 'IRONMAN 70.3', askEventName: true, eventOffset: 0, defaultEnd: null,
+      endKind: 'Rennen', endTitle: 'Dein Rennen', endField: 'Renndatum *', endLabel: 'Rennen',
+      endIntro: 'Der 26-Wochen-Plan wird rückwärts vom Renntag (Sonntag in Woche 26) berechnet.',
+      endWeekdayWarn: 'Der Plan ist für einen Rennsonntag gebaut. Dein Renntag ist ein',
+      eventToday: 'Renntag!', eventDone: 'Rennen vorbei', doneTitle: 'Rennen abgeschlossen',
+      heroTitle: 'Dein Weg zum<br>Ironman 70.3',
+      heroText: '26 Wochen Age-Group-Plan mit Zonen statt festen Werten – persönlich berechnet aus deiner FTP, Lauf-Schwellenpace und CSS. Ein kurzes Onboarding – einmalig.',
+      titleSplit: null, qualLabel: 'Qualität', keyLabel: 'Schlüsseleinheit',
+      labels: { 'Purpose': 'Zweck', 'Warm-up': 'Aufwärmen', 'Main set': 'Ausführung', 'Cool-down': 'Ausklang', 'Targets': 'Zonen', 'Coach note': 'Hinweis' },
+      coachLabel: 'Hinweis beachtet?',
+      discs: [{ k: 'swim', label: 'Schwimmen' }, { k: 'bike', label: 'Rad' }, { k: 'run', label: 'Laufen' }, { k: 'strength', label: 'Kraft' }, { k: 'mob', label: 'Mobility' }],
+      longBike: 'max', longRun: 'max', hasRaceMin: true,
+      checks: ['rest', 'volume', 'zones', 'spec', 'discs', 'autoreg'],
+      rules: { maxHours: 13, repeatWeek: false, missedAny: false, nutrition: true, carbDefault: [70, 100], energy: false, painStrong: 'area', painMildOk: false, fatigueMode: 'easy', illnessMode: 'easy', illnessReentry: null, deloadPhase: null, maxRepeats: 0 },
+      msgs: {
+        easy: 'Z2', easyNow: 'locker statt hart (Z1–Z2)', easySuffix: 'Ampel: harte Einheit locker statt hart, nie nachholen',
+        illnessYes: 'Ampel: müde/krank → harte Einheit locker statt hart.',
+        qualityDrop: 'Leistung fiel ab',
+        missed: 'Plan-Regel: Eine harte Einheit wird nie am nächsten Tag nachgeholt. Die nächste Einheit läuft wie geplant.',
+        extra: 'Ungeplanter Zusatzumfang geht auf Kosten der Erholung. Der Umfang bleibt im Phasenrahmen des Plans.',
+        restBroken: 'Ruhetage sind komplett trainingsfrei – Erholung ist Teil des Plans.'
+      },
+      ui: {
+        painLabels: [['none', 'Keine'], ['mild', 'Leicht'], ['strong', 'Stark']],
+        painAreas: [['all', 'allgemein'], ['run', 'Laufen'], ['bike', 'Rad'], ['swim', 'Schwimmen (Schulter)']],
+        stableDrop: { bike: 'Leistung gefallen', other: 'Tempo/Leistung gefallen' },
+        qualField: 'Min in Z3–Z5 (Qualität)'
+      },
+      kpis: [['hours', 'Geplanter Umfang', 'Geplanter Umfang', 'hm'], ['longBike', 'Langes Rad', 'Langes Rad'], ['longRun', 'Langer Lauf', 'Langer Lauf'], ['quality', 'Qualitätsminuten (Z3-Z5)', 'Qualitätsminuten (Z3-Z5)'], ['race', 'Rennspezifische Minuten', 'Rennspezifische Minuten'], ['swimDist', 'Schwimmdistanz', 'Schwimmdistanz', 'm'], ['restDays', 'Ruhetage', 'Ruhetage']],
+      lbl: ['Rad', 'Lauf'],
+      charts: {
+        phaseBands: true,
+        vol: { type: 'line', tab: 'Umfang', title: 'Wöchentlicher Trainingsumfang (gestrichelt/punktiert = Umfang-Rahmen der Phase)', sub: 'Stunden pro Woche – Plan (PDF) vs. Ist', ceiling: 0, ceilLabel: 'Umfang-Rahmen', frames: true },
+        disc: { tab: 'Disziplinen', title: 'Verteilung nach Disziplin pro Woche (Koppeleinheiten in Rad/Lauf aufgeteilt)', sub: 'Stunden je Disziplin – Plan (PDF, breite Balken) vs. Ist (schmale Balken)' },
+        qual: { type: 'line', tab: 'Qualität', title: 'Entwicklung von Qualität und Rennspezifik', sub: 'Qualitätsminuten (Z3-Z5) und rennspezifische Minuten (RW/RT) pro Woche – Plan (PDF) vs. Ist (Ist = Minuten, die du beim Eintragen angibst)', labels: ['Qualitätsminuten (Z3-Z5)', 'Rennspezifische Minuten (RW/RT)'] },
+        long: { tab: 'Lange Einheiten', title: 'Entwicklung der langen Einheiten', sub: 'Längste Radeinheit (inkl. Rad-Teil Koppel) und längster Lauf in Minuten – Plan (PDF) vs. Ist', labels: ['Längste Radeinheit', 'Längster Lauf'] },
+        zone: { tab: 'Zonenzeit', title: 'Trainingszeit pro Zone und Woche (Kraft / Mobility ohne Zone)', sub: 'Stunden je Zone – Plan (PDF, breite Balken) vs. Ist (aus den ausgeführten Einheiten geschätzt)', distTitle: 'Intensitätsverteilung gesamt (W1–W26)' },
+        note: () => 'Die Diagramme zeigen den geplanten Trainingsreiz, keine garantierten physiologischen Effekte. Sie machen die Richtung des Plans sichtbar und überprüfbar.'
+      },
+      moreTitle: () => '26-Wochen 70.3 Performance Plan',
+      moreSub: () => PL.subtitle,
+      masterExtra: w => `Qual. ${w.quality} · Renn. ${w.race} · Ruhetage ${w.restDays}`,
+      blocks: () => PL.blocks.map(b => ({ ...b, a: b.weeks[0], z: b.weeks[1] })),
+      sections: () => PL.sections
+    },
+    get data() { return window.PLAN_T26; }
   }
 };

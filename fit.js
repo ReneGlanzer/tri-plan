@@ -163,7 +163,70 @@ const FIT = (() => {
     return { ...sport, steps: all };
   }
 
-  function stepsFor(s, z, eff) {
+  /* ---------- Pläne mit strukturierter Ausführung (fts): Zeilen/Gruppen aus dem Plan -> Schritte ---------- */
+  const secOfLine = x => {
+    let m = x.match(/^(\d+):(\d\d) min/); if (m) return +m[1] * 60 + +m[2];
+    m = x.match(/^(\d\d):(\d\d) /); if (m) return +m[1] * 3600 + +m[2] * 60;
+    m = x.match(/^(\d+) sec\. /); if (m) return +m[1];
+    m = x.match(/^(\d+) min /); if (m) return +m[1] * 60;
+    return null;
+  };
+  const HARD = /\b(Z3|Z4|Z5|K3|RW|SS|SW|VO2|RT)\b/;
+  function zoneTarget(ctx, label, z, easy) {
+    if (!z) return OPEN;
+    if (ctx === 'bike') {
+      const code = (label.match(/\b(Z1-Z2|Z2\+|Z1|Z2|Z3|Z4|Z5|K3|RW|SS|SW|VO2)(?![\w+])/) || [])[1]; if (!code) return OPEN;
+      if (code === 'Z1-Z2') return { t: 'power', lo: 0, hi: Zn.watts(z, 75) };
+      let c = easy && HARD.test(code) ? 'Z2' : code; let lo, hi;
+      if (c === 'Z4') [lo, hi] = [88, 105]; else if (c === 'Z5') [lo, hi] = [106, 120];
+      else { const d = Z26.bike.find(x => x[0] === c); if (!d) return OPEN; [lo, hi] = [d[1], d[2]]; }
+      return c === 'Z1' ? { t: 'power', lo: 0, hi: Zn.watts(z, 55) } : { t: 'power', lo: Zn.watts(z, lo), hi: Zn.watts(z, hi) };
+    }
+    if (ctx === 'run') {
+      if (!z.runThr) return OPEN;
+      const code = (label.match(/\b(Z2|Z3|Z4|Z5|RT|SW|VO2)(?![\w+])/) || [])[1]; if (!code) return OPEN;
+      const c = easy && HARD.test(code) ? 'Z2' : code; const d = Z26.run.find(x => x[0] === ({ Z4: 'SW', Z5: 'VO2' }[c] || c)); if (!d) return OPEN;
+      return { t: 'speed', lo: Math.round(1e6 / (z.runThr + d[2])), hi: Math.round(1e6 / (z.runThr + d[1])) };
+    }
+    if (ctx === 'swim') {
+      const code = (label.match(/\b(locker|schnell|RT|CSS|A)\b/) || [])[1]; if (!code) return OPEN;
+      const d = Z26.swim.find(x => x[0] === code); if (!d) return OPEN;
+      return { t: 'speed', lo: Math.round(1e5 / (z.css + d[2])), hi: Math.round(1e5 / (z.css + Math.min(d[1], d[2]) - (d[1] === d[2] ? 2 : 0))) };
+    }
+    return OPEN;
+  }
+  const intOfLine = (label, easy) => /einfahren|einlaufen|aufwärmen|einschwimmen/i.test(label) ? 'warmup' : /ausfahren|auslaufen|ausschwimmen/i.test(label) ? 'cooldown' : /\brest\b|traben|gehen|zurück|Pause/i.test(label) ? 'recovery' : (!easy && (HARD.test(label) || /TEST|Sprint|Steigerung|schnell|CSS/.test(label))) ? 'interval' : 'active';
+  function execLineStep(x, ctx, z, easy) {
+    const sec = secOfLine(x);
+    if (sec != null) { const label = x.replace(/^(\d+:\d\d( min)?|\d+ sec\.|\d+ min) /, ''); return step(cap(label, 20), timeS(sec), zoneTarget(ctx, label, z, easy), intOfLine(label, easy), cap(x, 50)); }
+    const m = x.match(/^(\d+)m (.*)$/);
+    if (m && ctx === 'swim') return step(cap(`${m[1]} m ${m[2]}`, 20), distM(+m[1]), zoneTarget('swim', m[2], z, easy), intOfLine(m[2], easy), cap(x, 50));
+    return null;
+  }
+  function execSteps(s, z, eff, part) {
+    const easy = eff.mode === 'easy'; let ctx = part || (s.disc === 'swim' ? 'swim' : s.disc === 'run' ? 'run' : 'bike');
+    const out = []; let on = !s.split; // Koppel: nur die Zeilen des gewünschten Teils
+    const take = x => { if (s.split) { if (/^Rad:/.test(x)) { on = part === 'bike'; return false; } if (/^laufen:/i.test(x)) { on = part === 'run'; return false; } } return on; };
+    for (const it of s.raw.exec) {
+      if (it.t === 'rep') {
+        const base = out.length;
+        it.items.forEach(i => { if (take(i.x)) { const st = execLineStep(i.x, ctx, z, easy); if (st) out.push(st); } });
+        if (out.length > base) out.push({ repeat: true, from: base, count: Math.max(1, it.n - (eff.repsMinus || 0)) });
+      } else if (take(it.x)) { const st = execLineStep(it.x, ctx, z, easy); if (st) out.push(st); }
+    }
+    return out;
+  }
+  function execStepsFor(s, z, eff, part) {
+    const R = s.raw;
+    if (s.disc === 'strength' || s.disc === 'mob') return { sport: 10, sub: s.disc === 'strength' ? 20 : 19, steps: [step(s.disc === 'strength' ? 'Kraft' : 'Mobility', timeS((eff.dur || s.durMin) * 60), OPEN, 'active', cap(R.exec.map(i => i.x).filter(Boolean).join(' · '), 50))] };
+    const p = part || (s.disc === 'swim' ? 'swim' : s.disc === 'run' ? 'run' : 'bike');
+    let steps = execSteps(s, z, eff, p);
+    if (!steps.length) steps = [step('Einheit', timeS(((s.split ? s.split[p] : (eff.dur || s.durMin)) || 30) * 60), OPEN, 'active', cap(T(R.Purpose), 50))];
+    return { sport: p === 'swim' ? 5 : p === 'run' ? 1 : 2, sub: p === 'swim' ? 17 : 0, steps };
+  }
+
+  function stepsFor(s, z, eff, part) {
+    if (PM.exec) return execStepsFor(s, z, eff, part);
     if (PM.zoneModel === 'rpe') return rpeStepsFor(s, eff);
     if (s.disc === 'bike') return { sport: 2, sub: 0, steps: bikeSteps(s, z, eff) };
     if (s.disc === 'run') return { sport: 1, sub: 0, steps: runSteps(s, z, eff) };
@@ -239,23 +302,28 @@ const FIT = (() => {
 
   /* ---------- Öffentliche API ---------- */
   const slug = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
-  function build(s) {
+  function buildPart(s, part) {
     const date = dateOfSession(s), z = Zn.at(S, date), eff = effective(s);
     if (s.disc === 'race' || eff.mode === 'rest') return null;
-    const r = stepsFor(s, z, eff); if (!r) return null;
-    const nm = `W${planWeekOf(s.week)} ${wdShort(date)} ${T(s.name)}`.slice(0, 31);
+    const r = stepsFor(s, z, eff, part); if (!r) return null;
+    const label = part ? (part === 'bike' ? 'Rad' : 'Lauf') : '';
+    const nm = `W${planWeekOf(s.week)} ${wdShort(date)} ${T(s.name).split(' – ')[0]}${s.split ? ' ' + label : ' ' + (T(s.name).split(' – ')[1] || '')}`.trim().slice(0, 31);
     const flat = r.steps;
     return { name: `${slug(nm.replace(/ /g, '_'))}-${date}.fit`, data: encode(nm, r.sport, r.sub, flat), steps: flat };
   }
+  /* Koppeleinheiten = zwei Workouts (Rad, Lauf); alle anderen eines */
+  const buildAll = s => (s.split ? ['bike', 'run'].map(p => buildPart(s, p)) : [buildPart(s)]).filter(Boolean);
+  const build = s => buildAll(s)[0] || null;
   function save(name, bytes, type) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: type || 'application/octet-stream' }));
     a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
   return {
     build, zip, save, encode, crc16, stepsFor,
-    exportSession(s) { const f = build(s); if (!f) return false; save(f.name, f.data); return true; },
+    buildAll,
+    exportSession(s) { const fs = buildAll(s); if (!fs.length) return false; if (fs.length === 1) save(fs[0].name, fs[0].data); else save(`${fs[0].name.replace(/\.fit$/, '')}-Rad-Lauf.zip`, zip(fs.map(f => ({ name: f.name, data: f.data }))), 'application/zip'); return true; },
     exportWeek(w) {
-      const files = []; for (const dk of DAYKEYS) for (const s of daySess(w, dk)) { const f = build(s); if (f) files.push({ name: f.name, data: f.data }); }
+      const files = []; for (const dk of DAYKEYS) for (const s of daySess(w, dk)) for (const f of buildAll(s)) files.push({ name: f.name, data: f.data });
       if (!files.length) return 0; save(`Woche-${w}-Garmin-Workouts.zip`, zip(files), 'application/zip'); return files.length;
     }
   };

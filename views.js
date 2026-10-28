@@ -25,8 +25,8 @@ const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
 };
 const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ''}</svg>`;
-const DISC_IC = { swim: 'swim', bike: 'bike', run: 'run', strength: 'strength', mob: 'mob', race: 'race' };
-const DISC_DE = { swim: 'Schwimmen', bike: 'Rad', run: 'Laufen', strength: 'Kraft', mob: 'Mobility/Yoga', race: 'Rennen' };
+const DISC_IC = { swim: 'swim', bike: 'bike', run: 'run', strength: 'strength', mob: 'mob', brick: 'bike', race: 'race' };
+const DISC_DE = { swim: 'Schwimmen', bike: 'Rad', run: 'Laufen', strength: 'Kraft', mob: 'Mobility', brick: 'Koppel', race: 'Rennen' };
 const discIc = d => `<span class="dicon d-${d}">${ic(DISC_IC[d])}</span>`;
 const phaseDe = p => T(p);
 
@@ -48,6 +48,9 @@ function resolveTokens(str) {
 const wkNo = c => planWeekOf(c);
 const wkTag = c => isRepeatWeek(c) ? ' · Wiederholung' : '';
 const hoursFmt = (wk, mode) => mode === 'hm' ? (wk.hoursText || '') : `${wk.hours.toFixed(2).replace(/\.?0+$/, '')} h`;
+const fmtM = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' m';
+const zoned = () => PM.zoneModel !== 'rpe';
+const ZCOL = { Z1: '#9dc4ee', Z2: '#6aa84f', Z3: '#f1c232', Z4: '#e69138', Z5: '#e00000' };
 
 /* ---------- Kleine Bausteine ---------- */
 function statusOfSession(s, date) {
@@ -84,7 +87,7 @@ function viewHome() {
   </header>`;
 
   if (zonesDue()) {
-    html += `<section class="card alert-card rise" ${staggerAttr(1)}><div class="row"><span class="ico-badge amber">${ic('refresh')}</span><div><h3>Wöchentliches Zonen-Update</h3><p>Zeit, FTP, CSS und Garmin-HF-Zonen zu prüfen. Der Plan passt sich an oder bleibt gleich.</p></div></div>
+    html += `<section class="card alert-card rise" ${staggerAttr(1)}><div class="row"><span class="ico-badge amber">${ic('refresh')}</span><div><h3>Wöchentliches Zonen-Update</h3><p>Zeit, ${PM.zoneModel === 'fts' ? 'FTP, Lauf-Schwellenpace und CSS' : 'FTP, CSS und Garmin-HF-Zonen'} zu prüfen. Der Plan passt sich an oder bleibt gleich.</p></div></div>
       <div class="btns"><button class="btn primary" data-act="zoneUpdate">Jetzt aktualisieren</button><button class="btn ghost" data-act="snoozeZone">Später</button></div></section>`;
   }
   const adjs = activeAdjustments(t);
@@ -105,6 +108,7 @@ function viewHome() {
   const dm = dayModel(t); const st = dayState(t);
   const wk = dm.wk;
   html += `<div class="sec-head rise" ${staggerAttr(3)}><h2>Heutiges Training</h2><span class="pill">Woche ${dm.pw}${dm.repeat ? ' (Wdh.)' : ''} · ${esc(phaseDe(wk.phase))}</span></div>`;
+  if (dm.restLike) html += `<p class="muted small rise" ${staggerAttr(3)} style="margin:-4px 2px 10px"><span class="tag amber">${esc(dm.restLike)}</span></p>`;
   if (dm.rest) {
     html += `<a class="card sess rest rise" ${staggerAttr(4)} href="#/day/${t}"><div class="row">${`<span class="dicon d-rest">${ic('rest')}</span>`}<div><h3>Ruhetag – Full Rest</h3><p>${esc(T(dm.restText))}</p></div></div>${st === 'done' ? '<span class="done-tag">Tag erledigt</span>' : '<span class="go">Check-in ausfüllen ›</span>'}</a>`;
   } else {
@@ -146,6 +150,26 @@ function detailRow(label, htmlText) {
   return `<div class="dl"><dt>${L(label, PM.labels[label] || label)}</dt><dd>${htmlText}</dd></div>`;
 }
 
+/* Ausführung (strukturiert) mit berechneten Zielwerten */
+const discCtx = s => s.disc === 'bike' ? 'bike' : s.disc === 'run' ? 'run' : s.disc === 'swim' ? 'swim' : s.disc === 'brick' ? 'bike' : null;
+function execHtml(s, z, eff) {
+  let ctx = discCtx(s); const out = [];
+  const line = x => { if (/^Rad:/.test(x)) ctx = 'bike'; else if (/^laufen:/i.test(x)) ctx = 'run'; else if (/^schwimmen:/i.test(x)) ctx = 'swim'; return x; };
+  const row = x => /^(Rad|laufen):$/i.test(x) ? `<div class="ex sub">${esc(x)}</div>` : `<div class="ex">${eff && eff.mode === 'easy' ? enrich26(x.replace(/\b(Z3|Z4|Z5|K3|RW|SS|SW|VO2|RT)\b/g, 'Z2'), ctx, z) : enrich26(x, ctx, z)}</div>`;
+  for (const it of s.raw.exec) {
+    if (it.t === 'rep') {
+      const n = Math.max(1, it.n - (eff && eff.repsMinus || 0));
+      out.push(`<div class="exrep"><b>${n}×</b><div>${it.items.map(i => row(line(i.x))).join('')}</div></div>`);
+    } else out.push(row(line(it.x)));
+  }
+  return `<div class="exlist">${out.join('')}</div>`;
+}
+function legendHtml(s, z) {
+  const t = s.raw.zonen; if (!t) return '';
+  if (s.disc === 'brick') { const parts = t.split(/\s*\|\s*(?=Lauf:)/); return parts.map((p, i) => `<div>${enrich26(p, i === 0 ? 'bike' : 'run', z)}</div>`).join(''); }
+  return `<div>${enrich26(t, discCtx(s), z)}</div>`;
+}
+const zoneTimeHtml = zz => `<div class="zt">${Object.entries(zz).map(([k, v]) => `<span style="background:${ZCOL[k]}">${k} ${fmtHM(v)}</span>`).join('')}</div>`;
 function sessionCard(s, date, z, canLog) {
   const eff = effective(s);
   const log = (peekLog(date) || { sessions: {} }).sessions[s.id];
@@ -160,7 +184,13 @@ function sessionCard(s, date, z, canLog) {
       eff.adjs.map(a => `<p><b>${esc(a.what)}</b><br><span class="muted">Warum: ${esc(a.why)}</span></p>`).join('') + '</div>';
   }
   const en = t => enrich(T(t), s.disc, z, opt);
-  const planBox = () => `
+  const tgt = PM.rules.nutrition ? carbTarget(s) : null;
+  const planBox = PM.exec ? () => `
+    ${detailRow('Purpose', esc(R.Purpose))}
+    <div class="dl"><dt>${PM.labels['Main set']}</dt><dd>${execHtml(s, z, eff)}</dd></div>
+    ${R.zonen ? `<div class="dl"><dt>${PM.labels.Targets}</dt><dd>${legendHtml(s, z)}</dd></div>` : ''}
+    ${Object.keys(R.zonenzeit || {}).length ? `<div class="dl"><dt>Zonenzeit</dt><dd>${zoneTimeHtml(R.zonenzeit)}</dd></div>` : ''}
+    ${R['Coach note'] || tgt ? `<div class="dl"><dt>${PM.labels['Coach note']}</dt><dd>${esc(R['Coach note'] || '')}${tgt ? `<br><b>Verpflegung: ${tgt[0]}–${tgt[1]} g KH/h</b>` : ''}</dd></div>` : ''}` : () => `
     ${detailRow('Purpose', en(R.Purpose))}
     ${detailRow('Warm-up', en(R['Warm-up']))}
     ${detailRow('Main set', en(R['Main set']))}
@@ -188,7 +218,7 @@ const radios = (name, opts, cur, cls = '') => `<div class="seg ${cls}" role="rad
 const field = (label, name, val, extra = '') => `<label class="fld"><span>${label}</span><input name="${name}" value="${val ?? ''}" ${extra}></label>`;
 
 function logForm(s, date, l, eff, z) {
-  const ftp = PM.zoneModel === 'ftp';
+  const ftp = PM.zoneModel !== 'rpe';
   const kind = s.testKind;
   let f = `<form class="logform" data-sid="${s.id}" data-date="${date}" onsubmit="return false">`;
   f += `<div class="grp"><label class="lbl">Status *</label>${radios('status', [['yes', 'Erledigt'], ['partial', 'Teilweise'], ['no', 'Ausgelassen']], l.status)}</div>`;
@@ -196,20 +226,24 @@ function logForm(s, date, l, eff, z) {
   f += field('Dauer (min) *', 'minutes', l.minutes ?? (eff.dur || ''), 'inputmode="decimal"');
   if (s.disc === 'swim') f += field('Distanz (m)', 'dist', l.dist, 'inputmode="decimal"') + field('Ø Pace (mm:ss /100 m)', 'pace', l.pace, 'placeholder="1:45"');
   if (s.disc === 'bike') f += field('Distanz (km)', 'dist', l.dist, 'inputmode="decimal"') + field('Ø Leistung (W)' + (ftp ? '' : ' – optional'), 'avgP', l.avgP, 'inputmode="numeric"') + (ftp ? field('NP (W)', 'np', l.np, 'inputmode="numeric"') + field('Ø Trittfrequenz', 'cad', l.cad, 'inputmode="numeric"') : '');
+  if (s.disc === 'brick') f += field('Ø Leistung Rad (W)', 'avgP', l.avgP, 'inputmode="numeric"') + field('Ø Pace Lauf (mm:ss /km)', 'pace', l.pace, 'placeholder="5:30"');
   if (s.disc === 'run') f += field('Distanz (km)', 'dist', l.dist, 'inputmode="decimal"') + field('Ø Pace (mm:ss /km)', 'pace', l.pace, 'placeholder="5:30"') + (PM.longRun === 'cont' ? field('Längster Laufabschnitt am Stück (min)', 'contRun', l.contRun, 'inputmode="decimal"') : '');
   if (s.disc !== 'strength' && s.disc !== 'mob') f += field('Ø Herzfrequenz' + (ftp ? '' : ' – optional'), 'avgHr', l.avgHr, 'inputmode="numeric"');
   f += `</div>`;
   if (kind === 'css') f += `<div class="fields">${field('400 m Zeit (mm:ss)', 't400', l.t400, 'placeholder="6:10"')}${field('200 m Zeit (mm:ss)', 't200', l.t200, 'placeholder="2:55"')}</div><p class="muted small">CSS = (T400 − T200) ÷ 2 pro 100 m – wird nach dem Speichern berechnet und für die Zonen vorgeschlagen.</p>`;
   if (kind === 'ftp') f += `<div class="fields">${field('Testergebnis FTP (W)', 'testFtp', l.testFtp, 'inputmode="numeric"')}</div>`;
   if (kind === 'runthr') f += `<div class="fields">${field('Schwellen-Pace (mm:ss /km)', 'testPace', l.testPace, 'placeholder="4:40"')}</div>`;
+  if (kind === 'ftp20') f += `<div class="fields">${field('Ø-Watt der 20 min (Test) *', 'testAvgW', l.testAvgW, 'inputmode="numeric"')}</div><p class="muted small">FTP = 95 % der Ø-Watt – wird nach dem Speichern berechnet und für die Zonen vorgeschlagen.</p>`;
+  if (kind === 'runthr30') f += `<div class="fields">${field('Ø-Pace der letzten 20 min (mm:ss /km) *', 'testPace', l.testPace, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}${field('Ø-Puls der letzten 20 min', 'testHr', l.testHr, 'inputmode="numeric"')}</div><p class="muted small">Schwellenpace S = Ø-Pace der letzten 20 min; der Ø-Puls ist dein Schwellenpuls.</p>`;
   if (kind === '5k') f += `<div class="fields">${field('Zeit für 5 km (mm:ss) *', 't5k', l.t5k, 'placeholder="32:30" inputmode="text" autocapitalize="off" autocorrect="off"')}</div><p class="muted small">Die Zeit ist laut Plan der Startwert für den nächsten Zyklus.</p>`;
   f += `<div class="grp"><label class="lbl">RPE (1–10) *</label>${radios('rpe', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => [n, n]), l.rpe, 'rpe')}</div>`;
   if (s.hard || s.test) {
     f += `<div class="fields">${field(PM.ui.qualField, 'qualMin', l.qualMin ?? (s.q ?? ''), 'inputmode="numeric"')}${PM.hasRaceMin ? field('davon rennspezifisch (min)', 'raceMin', l.raceMin ?? (s.r ?? 0), 'inputmode="numeric"') : ''}</div>`;
     f += `<div class="grp"><label class="lbl">${s.disc === 'bike' ? 'Leistung stabil? Letzte Wdh. wie die erste? *' : 'Qualität stabil? Letzte Wdh. wie die erste? *'}</label>${radios('stable', [['ok', 'Ja, stabil'], ['drop', s.disc === 'bike' ? PM.ui.stableDrop.bike : PM.ui.stableDrop.other], ['form', 'Technik/Form ließ nach']], l.stable, 'col')}</div>`;
   }
-  if (PM.rules.nutrition && s.long && s.disc === 'bike') {
-    f += `<div class="fields">${field('Kohlenhydrate (g/h)', 'carbs', l.carbs, 'inputmode="numeric" placeholder="50–70"')}</div><div class="grp"><label class="lbl">Magen-Darm-Verträglichkeit</label>${radios('gi', [['good', 'Gut'], ['some', 'Leichte Probleme'], ['problems', 'Probleme']], l.gi)}</div>`;
+  const ctg = PM.rules.nutrition ? carbTarget(s) : null;
+  if (PM.rules.nutrition && ((s.long && s.disc === 'bike' && !PM.rules.carbDefault) || ctg)) {
+    f += `<div class="fields">${field('Kohlenhydrate (g/h)' + (ctg ? ` – Ziel ${ctg[0]}–${ctg[1]}` : ''), 'carbs', l.carbs, `inputmode="numeric" placeholder="${ctg ? ctg[0] + '–' + ctg[1] : '50–70'}"`)}</div><div class="grp"><label class="lbl">Magen-Darm-Verträglichkeit</label>${radios('gi', [['good', 'Gut'], ['some', 'Leichte Probleme'], ['problems', 'Probleme']], l.gi)}</div>`;
   }
   f += `<div class="grp"><label class="lbl">${esc(PM.coachLabel)}</label><p class="quote">${esc(T(s.raw['Coach note']))}</p>${radios('coachOk', [['yes', 'Ja'], ['partial', 'Teilweise'], ['no', 'Nein']], l.coachOk)}</div>`;
   f += `<label class="fld full"><span>Notiz (optional)</span><textarea name="notes" rows="2">${esc(l.notes || '')}</textarea></label>`;
@@ -241,11 +275,13 @@ function dayCheckCard(date, dm) {
     ${painBlock(c)}
     <div class="grp"><label class="lbl">Krankheitszeichen? *</label>${radios('illness', [['none', 'Nein'], ['mild', 'Leicht'], ['yes', PM.rules.illnessReentry ? 'Ja (Fieber / unterhalb des Halses)' : 'Ja']], c.illness)}</div>`;
   const BLOCKS = {
-    rest: ['Ruhetag', () => dm.rest ? `<div class="grp"><label class="lbl">Full Rest eingehalten? *</label>${radios('restKept', [['yes', 'Ja, komplett'], ['no', 'Nein, trainiert']], c.restKept)}<p class="muted small">Nur Spaziergehen und 5–10 min sanfte Mobility sind erlaubt.</p></div>` : `<p class="muted">Kein Ruhetag heute${nextRest ? ` – nächster: ${esc(fmtDate(nextRest))}` : ''}.</p>`],
+    rest: ['Ruhetag', () => dm.rest || dm.restLike ? `<div class="grp"><label class="lbl">${dm.restLike ? 'Ruhetag eingehalten (nur Mobility)? *' : 'Full Rest eingehalten? *'}</label>${radios('restKept', [['yes', 'Ja, komplett'], ['no', 'Nein, trainiert']], c.restKept)}<p class="muted small">Nur Spaziergehen und 5–10 min sanfte Mobility sind erlaubt.</p></div>` : `<p class="muted">Kein Ruhetag heute${nextRest ? ` – nächster: ${esc(fmtDate(nextRest))}` : ''}.</p>`],
     volume: ['Volumen', () => `<p class="statline"><b>${fmtHM(dayAct)}</b> heute absolviert · geplant ${fmtHM(dayPlan)}<br>Woche: ${fmtH(st.minutes)} h von ${fmtH(st.plannedMin)} h</p><div class="fields">${field('Zusatztraining außerhalb des Plans (min)', 'extraMin', c.extraMin ?? 0, 'inputmode="numeric"')}</div>`],
     spec: ['Spezifität', () => hasHard ? `<div class="grp"><label class="lbl">Kernintention der Schlüssel-/Qualitätseinheit erfüllt? *</label>${radios('specOk', [['yes', 'Ja'], ['partial', 'Teilweise'], ['no', 'Nein']], c.specOk)}</div>` : '<p class="muted">Keine Qualitäts-/Schlüsseleinheit heute.</p>'],
     junk: ['Junk-Mile-Check', () => `<div class="grp"><label class="lbl">Hatte jede lockere Einheit einen Zweck – kein Füllumfang? *</label>${radios('junkOk', [['yes', 'Ja'], ['no', 'Nein, Füllumfang']], c.junkOk)}</div>`],
     autoreg: ['Auto-Regulation', () => sleepFat],
+    zones: ['Intensitätsverteilung', () => `<p class="statline">Woche bisher (Ist, geschätzt / Plan):<br>${ZKEYS.map(k => `<b style="color:${ZCOL[k]}">${k}</b> ${fmtHM(st.zone[k])} / ${fmtHM((dm.wk.zoneTime || {})[k] || 0)}`).join(' · ')}</p>`],
+    discs: ['Disziplinen', () => { const pd = PL.disc[dm.pw - 1] || {}; return `<p class="statline">Woche bisher (Ist / Plan):<br>${PM.discs.map(d => `${d.label} <b>${fmtH(st.disc[d.k])}</b> / ${fmtH((pd[d.k] || 0) * 60)} h`).join(' · ')}</p>`; }],
     intensity: ['Intensität', () => dm.rest ? '<p class="muted">Ruhetag – keine Intensität zu bewerten.</p>' : hasHard
       ? `<div class="grp"><label class="lbl">Zügige Abschnitte wie vorgegeben (RPE 6–7), gleichmäßig? Rest locker? *</label>${radios('specOk', [['yes', 'Ja'], ['partial', 'Teilweise'], ['no', 'Nein']], c.specOk)}</div>`
       : `<div class="grp"><label class="lbl">Alles locker geblieben (RPE 3–4, ganze Sätze sprechen möglich)? *</label>${radios('specOk', [['yes', 'Ja'], ['partial', 'Teilweise'], ['no', 'Nein, zu hart']], c.specOk)}</div>`],
@@ -281,12 +317,12 @@ function viewDay(date) {
 function viewWeek(n) {
   n = clamp(n, 1, TW()); const wk = planWeekData(n); const st = weekStats(n); const cw = curWeek();
   const pct = st.plannedMin ? Math.round(st.minutes / st.plannedMin * 100) : 0;
-  const kv = PM.kpis.map(([k, en, de, fmt]) => `<div><small>${L(en, de)}</small><b>${fmt ? hoursFmt(wk, fmt) : wk[k]}</b></div>`).join('');
+  const kv = PM.kpis.map(([k, en, de, fmt]) => `<div><small>${L(en, de)}</small><b>${fmt === 'm' ? fmtM(wk[k]) : fmt ? hoursFmt(wk, fmt) : wk[k]}</b></div>`).join('');
   return `<header class="top rise"><a class="back" href="#/plan">${ic('back')}</a><div class="grow"><p class="eyebrow">${esc(fmtDM(dateFor(n, 0)))} – ${esc(fmtDM(dateFor(n, 6)))}${esc(wkTag(n))}</p><h1>Woche ${wkNo(n)} <small>${esc(phaseDe(wk.phase))}</small></h1></div></header>
   <button class="btn ghost wide rise" data-act="exportWeek" data-week="${n}">${ic('upload')} ${L('Week as Garmin workouts (ZIP)', 'Woche als Garmin-Workouts (ZIP)')}</button>
   <div class="daynav rise">${n > 1 ? `<a class="btn ghost sm" href="#/week/${n - 1}">${ic('back')} Woche ${wkNo(n - 1)}</a>` : '<span></span>'}${n < TW() ? `<a class="btn ghost sm" href="#/week/${n + 1}">Woche ${wkNo(n + 1)} ${ic('next')}</a>` : '<span></span>'}</div>
   <section class="card rise" ${staggerAttr(2)}><div class="kpis">${kv}<div><small>Ist / Plan</small><b>${n <= cw && cw <= TW() ? pct + ' %' : '–'}</b></div></div>
-    <p class="focus"><span class="muted">${L('Primary focus', 'Schwerpunkt')}</span> ${esc(T(wk.focus))}</p><p class="muted">${esc(T(wk.note))}</p></section>
+    <p class="focus"><span class="muted">${L('Primary focus', 'Schwerpunkt')}</span> ${esc(T(wk.focus))}</p>${wk.zoneTime ? `<p class="muted small">Zonenzeit (Plan): ${ZKEYS.map(k => `${k} ${fmtHM(wk.zoneTime[k] || 0)}`).join(' · ')}</p>` : ''}<p class="muted">${esc(T(wk.note))}</p></section>
   <div class="sec-head rise" ${staggerAttr(3)}><h2>Übersicht</h2></div>
   <section class="card rise" ${staggerAttr(4)}><div class="ovtable"><div class="ovh"><span>${L('Day', 'Tag')}</span><span>${L('Session(s)', 'Einheit(en)')}</span></div>${wk.overview.map((o, i) => {
     const date = dateFor(n, i); const ds = dayState(date);
@@ -299,9 +335,11 @@ function weekCheckSummary(n, i) {
   const logs = []; for (let d = 0; d < 7; d++) { const l = peekLog(dateFor(n, d)); if (l && l.check) logs.push({ d, c: l.check, l }); }
   if (!logs.length) return 'Noch keine Tageseinträge.';
   const k = PM.checks[i];
-  if (k === 'rest') { const r = logs.find(x => isRestDay(n, DAYKEYS[x.d]) && x.c.restKept); return r ? (r.c.restKept === 'yes' ? 'Ruhetag eingehalten ✓' : 'Ruhetag nicht eingehalten ✗') : 'Ruhetag noch offen.'; }
+  if (k === 'rest') { const r = logs.find(x => (isRestDay(n, DAYKEYS[x.d]) || planWeekData(n).days[DAYKEYS[x.d]].restLike) && x.c.restKept); return r ? (r.c.restKept === 'yes' ? 'Ruhetag eingehalten ✓' : 'Ruhetag nicht eingehalten ✗') : 'Ruhetag noch offen.'; }
   if (k === 'volume') { const st = weekStats(n); return `Ist ${fmtH(st.minutes)} h von ${fmtH(st.plannedMin)} h · Zusatz ${logs.reduce((a, x) => a + (x.c.extraMin || 0), 0)} min`; }
   if (k === 'spec' || k === 'intensity') { const spec = logs.filter(x => x.c.specOk); if (!spec.length) return k === 'spec' ? 'Keine Qualitätstage erfasst.' : 'Noch keine Bewertung.'; return `Wie vorgegeben: ${spec.filter(x => x.c.specOk === 'yes').length} von ${spec.length} bewerteten Tagen`; }
+  if (k === 'zones') { const st = weekStats(n); const wk = planWeekData(n); return ZKEYS.map(z => `${z} ${fmtHM(st.zone[z])}/${fmtHM((wk.zoneTime || {})[z] || 0)}`).join(' · '); }
+  if (k === 'discs') { const st = weekStats(n); const pd = PL.disc[planWeekOf(n) - 1] || {}; return PM.discs.map(d => `${d.label} ${fmtH(st.disc[d.k])}/${fmtH((pd[d.k] || 0) * 60)} h`).join(' · '); }
   if (k === 'junk') { const bad = logs.filter(x => x.c.junkOk === 'no').length; return bad ? `${bad}× Füllumfang gemeldet` : 'Kein Füllumfang gemeldet ✓'; }
   const sl = logs.filter(x => x.c.sleep != null), fa = logs.filter(x => x.c.fatigue != null);
   const rep = S.inserts.some(x => x.at === n) ? ' · Woche wird wiederholt' : '';
@@ -332,7 +370,9 @@ function viewPerf() {
   const cs = chartSeries(); const cw = cs.cw; const CF = PM.charts; const keys = PM.discs.map(d => d.k);
   setChartN(cs.M);
   const PERF_TABS = [['vol', CF.vol.tab], ['disc', CF.disc.tab], ['qual', CF.qual.tab], ['long', CF.long.tab]];
+  if (CF.zone) PERF_TABS.push(['zone', CF.zone.tab]);
   if (!PERF_TABS.some(x => x[0] === perfTab)) perfTab = 'vol';
+  const bands = CF.phaseBands ? cs.phases : null;
   const legend = items => `<div class="legend">${items.map(([c, l, dash]) => `<span><i class="${dash ? 'dash' : ''}" style="--c:${c}"></i>${l}</span>`).join('')}</div>`;
   const tipTxt = (i, rows) => `<b>Woche ${cs.planWeeks[i]}${isRepeatWeek(i + 1) ? ' (Wdh.)' : ''}</b>` + rows.map(([l, v, c]) => `<span><i style="--c:${c}"></i>${l}<em>${v}</em></span>`).join('');
   const done = Math.max(0, cw - 1);
@@ -344,13 +384,13 @@ function viewPerf() {
     if (C.type === 'bars') {
       const mi = C.mark ? sched().indexOf(C.mark.pw) : -1;
       chart = stackChart('vol', V.plan.map(v => ({ v })), V.ist.map(v => v == null ? null : { v }), { cw, keys: ['v'], ceiling: C.ceiling, ceilLabel: C.ceilLabel, vmarks: mi > 0 ? [{ i: mi, label: C.mark.label }] : [], tip });
-    } else chart = lineChart('vol', [{ color: COL.vol, plan: V.plan, ist: V.ist }], { cw, yFmt: v => v, ceiling: C.ceiling, ceilLabel: '', tip });
+    } else chart = lineChart('vol', [{ color: COL.vol, plan: V.plan, ist: V.ist }], { cw, yFmt: v => v, ceiling: C.ceiling, ceilLabel: '', tip, bands, frames: C.frames ? cs.frames : null });
     leg = legend([[COL.vol, 'Plan (PDF)', true], [COL.vol, 'Ist'], ['#888', C.ceilLabel, true]]);
     const p = sumTo(V.plan, done), a = sumTo(V.ist, done);
-    stats = [['Ist (abgeschl. Wochen)', a.toFixed(1) + ' h'], ['Plan (abgeschl. Wochen)', p.toFixed(1) + ' h'], ['Erfüllung', p ? Math.round(a / p * 100) + ' %' : '–'], ['Aktuelle Woche', cw ? `${(V.ist[cw - 1] ?? 0).toFixed(1)} / ${V.plan[cw - 1]} h` : '–']];
+    stats = [['Ist (abgeschl. Wochen)', a.toFixed(1) + ' h'], ['Plan (abgeschl. Wochen)', p.toFixed(1) + ' h'], ['Erfüllung', p ? Math.round(a / p * 100) + ' %' : '–'], ['Aktuelle Woche', cw ? `${(V.ist[cw - 1] ?? 0).toFixed(1)} / ${(+V.plan[cw - 1]).toFixed(1)} h` : '–']];
   } else if (perfTab === 'disc') {
     C = CF.disc; const D = cs.disc;
-    chart = stackChart('disc', D.plan, D.ist, { cw, keys, tip: i => { const p = D.plan[i], a = D.ist[i]; return tipTxt(i, PM.discs.map(d => [d.label, `${a ? a[d.k].toFixed(1) : '–'} / ${p[d.k].toFixed(1)} h`, COL[d.k]])); } });
+    chart = stackChart('disc', D.plan, D.ist, { cw, keys, bands, tip: i => { const p = D.plan[i], a = D.ist[i]; return tipTxt(i, PM.discs.map(d => [d.label, `${a ? a[d.k].toFixed(1) : '–'} / ${p[d.k].toFixed(1)} h`, COL[d.k]])); } });
     leg = legend(PM.discs.map(d => [COL[d.k], d.label]));
     stats = PM.discs.map(d => { const p = D.plan.slice(0, done).reduce((a, x) => a + x[d.k], 0), a = D.ist.slice(0, done).reduce((x, y) => x + (y ? y[d.k] : 0), 0); return [`${d.label} (Ist/Plan)`, `${a.toFixed(1)} / ${p.toFixed(1)} h`]; });
   } else if (perfTab === 'qual') {
@@ -360,27 +400,51 @@ function viewPerf() {
       leg = legend([[COL.q, 'Plan (PDF)', true], [COL.q, 'Ist']]);
       stats = [[`${C.labels[0]} Ist / Plan`, `${sumTo(Q.ist, done)} / ${sumTo(Q.plan, done)} min`], ['Aktuelle Woche', cw ? `${Q.ist[cw - 1] ?? 0} / ${Q.plan[cw - 1]} min` : '–']];
     } else {
-      chart = lineChart('qual', [{ color: COL.qual, plan: Q.plan, ist: Q.ist }, { color: COL.race, plan: Q.planRace, ist: Q.istRace }], { cw, yFmt: v => v, min: 0, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', Q.plan[i] + ' min', COL.qual], [C.labels[0] + ' Ist', Q.ist[i] != null ? Q.ist[i] + ' min' : '–', COL.qual], [C.labels[1] + ' Plan', Q.planRace[i] + ' min', COL.race], [C.labels[1] + ' Ist', Q.istRace[i] != null ? Q.istRace[i] + ' min' : '–', COL.race]]) });
+      chart = lineChart('qual', [{ color: COL.qual, plan: Q.plan, ist: Q.ist }, { color: COL.race, plan: Q.planRace, ist: Q.istRace }], { cw, yFmt: v => v, min: 0, bands, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', Q.plan[i] + ' min', COL.qual], [C.labels[0] + ' Ist', Q.ist[i] != null ? Q.ist[i] + ' min' : '–', COL.qual], [C.labels[1] + ' Plan', Q.planRace[i] + ' min', COL.race], [C.labels[1] + ' Ist', Q.istRace[i] != null ? Q.istRace[i] + ' min' : '–', COL.race]]) });
       leg = legend([[COL.qual, C.labels[0] + ' Plan', true], [COL.qual, C.labels[0] + ' Ist'], [COL.race, C.labels[1] + ' Plan', true], [COL.race, C.labels[1] + ' Ist']]);
       stats = [[`${C.labels[0]} Ist / Plan`, `${sumTo(Q.ist, done)} / ${sumTo(Q.plan, done)} min`], [`${C.labels[1]} Ist / Plan`, `${sumTo(Q.istRace, done)} / ${sumTo(Q.planRace, done)} min`]];
     }
+  } else if (perfTab === 'zone') {
+    C = CF.zone; const Zs = cs.zone; const zk = ZKEYS;
+    chart = stackChart('zone', Zs.plan, Zs.ist, { cw, keys: zk, colors: ZCOL, bands, tip: i => { const p = Zs.plan[i], a = Zs.ist[i]; return tipTxt(i, zk.map(k => [k, `${a ? a[k].toFixed(1) : '–'} / ${p[k].toFixed(1)} h`, ZCOL[k]])); } });
+    leg = legend(zk.map(k => [ZCOL[k], k]));
+    const sumZ = (rows, to) => { const o = {}; zk.forEach(k => o[k] = rows.slice(0, to).reduce((a, r) => a + (r ? r[k] : 0), 0)); return o; };
+    const pAll = sumZ(Zs.plan, cs.M), aAll = sumZ(Zs.ist, cs.M);
+    const tp = zk.reduce((a, k) => a + pAll[k], 0) || 1, ta = zk.reduce((a, k) => a + aAll[k], 0);
+    const bar = (o, t) => `<div class="hbar">${zk.map(k => { const pc = t ? o[k] / t * 100 : 0; return pc > 0.4 ? `<span style="width:${pc}%;background:${ZCOL[k]}">${pc >= 6 ? Math.round(pc) + ' %' : ''}</span>` : ''; }).join('')}</div>`;
+    stats = [['Plan gesamt', fmtHM(tp * 60)], ['Ist bisher (geschätzt)', fmtHM(ta * 60)]];
+    C = { ...C, extra: `<h4 class="sub">${C.distTitle}</h4><p class="hbar-l">Plan (${fmtHM(tp * 60)}) – Anteile je Zone</p>${bar(pAll, tp)}<p class="hbar-l">Ist bisher (${fmtHM(ta * 60)})</p>${ta ? bar(aAll, ta) : '<p class="muted small">Noch keine Einheiten eingetragen.</p>'}` };
   } else {
     C = CF.long; const G = cs.long;
-    chart = lineChart('long', [{ color: COL.bike, plan: G.planBike, ist: G.istBike }, { color: COL.run, plan: G.planRun, ist: G.istRun }], { cw, yFmt: v => v, min: 0, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', fmtHM(G.planBike[i]), COL.bike], [C.labels[0] + ' Ist', G.istBike[i] != null ? fmtHM(G.istBike[i]) : '–', COL.bike], [C.labels[1] + ' Plan', fmtHM(G.planRun[i]), COL.run], [C.labels[1] + ' Ist', G.istRun[i] != null ? fmtHM(G.istRun[i]) : '–', COL.run]]) });
+    chart = lineChart('long', [{ color: COL.bike, plan: G.planBike, ist: G.istBike }, { color: COL.run, plan: G.planRun, ist: G.istRun }], { cw, yFmt: v => v, min: 0, bands, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', fmtHM(G.planBike[i]), COL.bike], [C.labels[0] + ' Ist', G.istBike[i] != null ? fmtHM(G.istBike[i]) : '–', COL.bike], [C.labels[1] + ' Plan', fmtHM(G.planRun[i]), COL.run], [C.labels[1] + ' Ist', G.istRun[i] != null ? fmtHM(G.istRun[i]) : '–', COL.run]]) });
     leg = legend([[COL.bike, C.labels[0] + ' Plan', true], [COL.bike, C.labels[0] + ' Ist'], [COL.run, C.labels[1] + ' Plan', true], [COL.run, C.labels[1] + ' Ist']]);
     const last = done - 1; const lb = last >= 0 ? G.istBike[last] : null, lr = last >= 0 ? G.istRun[last] : null;
     stats = [[`Letzte Woche: ${C.labels[0]} (Ist/Plan)`, last >= 0 ? `${lb != null ? fmtHM(lb) : '–'} / ${fmtHM(G.planBike[last])}` : '–'], [`Letzte Woche: ${C.labels[1]} (Ist/Plan)`, last >= 0 ? `${lr != null ? fmtHM(lr) : '–'} / ${fmtHM(G.planRun[last])}` : '–']];
   }
   return `<header class="top rise"><div><p class="eyebrow">Ist-Stand vs. PDF-Plan</p><h1>Performance</h1></div></header>
   <div class="tabs rise" ${staggerAttr(1)}>${PERF_TABS.map(([k, l]) => `<button class="tabbtn ${perfTab === k ? 'on' : ''}" data-act="perfTab" data-tab="${k}">${l}</button>`).join('')}</div>
-  <section class="card rise" ${staggerAttr(2)}><h3 class="ctitle">${C.title}</h3><p class="muted small">${C.sub}</p>${leg}<div id="chartHost">${chart}</div>
+  <section class="card rise" ${staggerAttr(2)}><h3 class="ctitle">${C.title}</h3><p class="muted small">${C.sub}</p>${leg}<div id="chartHost">${chart}</div>${C.extra || ''}
     <p class="muted small">${cw === 0 ? 'Der Plan hat noch nicht begonnen – die Ist-Werte erscheinen ab Woche 1.' : 'Tippe/ziehe im Diagramm für Details je Woche. Die senkrechte Linie markiert die aktuelle Woche.'}</p></section>
   <section class="card rise" ${staggerAttr(3)}><div class="kpis two">${stats.map(([k, v]) => `<div><small>${k}</small><b>${v}</b></div>`).join('')}</div></section>
   <p class="muted small pad">${esc(CF.note())}</p>`;
 }
 
 /* ---------- ZONEN / INTENSITÄTEN ---------- */
+const z26Def = (disc, d) => disc === 'bike' ? (d[0] === 'Z1' ? '< 55 % FTP' : `${d[1]}–${d[2]} % FTP`) : disc === 'run' ? (d[1] === -5 && d[2] === 5 ? 'S ± 5 s/km' : d[1] < 0 ? `S − ${-d[2]}–${-d[1]} s/km` : `S + ${d[1]}–${d[2]} s/km`) : (d[1] === 0 && d[2] === 0 ? 'CSS' : d[1] < 0 ? `CSS − ${-d[2]}–${-d[1]} s/100m` : `CSS + ${d[1]}–${d[2]} s/100m`);
+const z26Rows = (disc, z) => Z26[disc].map(d => `<div class="zr c-${disc}"><span>${d[0]} · ${d[3]}</span><em>${z26Def(disc, d)}</em><b>${z ? esc(z26Range(disc, d[0], z) || '–') : ''}</b></div>`).join('');
+function viewZones26() {
+  const z = S.zones; const nextDue = addDays(z.updated, 7);
+  return `<header class="top rise"><div><p class="eyebrow">Stand ${esc(fmtDate(z.updated))} · nächstes Update ${esc(fmtDate(nextDue))}</p><h1>Meine Zonen</h1></div></header>
+  <button class="btn primary wide rise" ${staggerAttr(1)} data-act="zoneUpdate">${ic('refresh')} Zonen aktualisieren</button>
+  <p class="muted small rise" ${staggerAttr(1)} style="margin:0 4px 12px">Tests laut Plan: Woche ${PM.testWeeks.join(', ')}. Neue Testwerte gelten ab sofort für noch offene Einheiten – frühere Einheiten werden nicht umgedeutet.</p>
+  <section class="card rise d-bike" ${staggerAttr(2)}><div class="row">${discIc('bike')}<div><h3>Rad · FTP ${z.ftp} W</h3><p class="muted small">${S.profile.weight ? (z.ftp / S.profile.weight).toFixed(2) + ' W/kg' : ''}</p></div></div><div class="ztable">${z26Rows('bike', z)}</div></section>
+  <section class="card rise d-run" ${staggerAttr(3)}><div class="row">${discIc('run')}<div><h3>Laufen · S ${fmtMMSS(z.runThr)}/km</h3><p class="muted small">Lauf-Schwellenpace</p></div></div><div class="ztable">${z26Rows('run', z)}</div></section>
+  <section class="card rise d-swim" ${staggerAttr(4)}><div class="row">${discIc('swim')}<div><h3>Schwimmen · CSS ${fmtMMSS(z.css)}/100 m</h3></div></div><div class="ztable">${z26Rows('swim', z)}</div></section>
+  <div class="sec-head rise" ${staggerAttr(5)}><h2>Verlauf</h2></div>
+  <section class="card rise" ${staggerAttr(6)}>${S.zoneHistory.slice().reverse().map(h => `<div class="hist"><div class="row between"><b>${h.date === '1970-01-01' ? 'Onboarding' : esc(fmtDate(h.date))}</b><small class="muted">${esc(h.reason || '')}</small></div>${h.diff && h.diff.length ? `<p class="small">${h.diff.map(d => `${esc(d.k)}: ${esc(d.from)} → ${esc(d.to)}`).join('<br>')}</p>` : `<p class="small muted">${h.date === '1970-01-01' ? `FTP ${h.z.ftp} W · S ${fmtMMSS(h.z.runThr)}/km · CSS ${fmtMMSS(h.z.css)}` : 'Unverändert bestätigt'}</p>`}</div>`).join('')}</section>`;
+}
 function viewZones() {
+  if (PM.zoneModel === 'fts') return viewZones26();
   if (PM.zoneModel === 'rpe') {
     const tb = PM.rpeTable();
     return `<header class="top rise"><div><p class="eyebrow">Steuerung nach Gefühl</p><h1>Intensitäten</h1></div></header>
@@ -412,10 +476,12 @@ function blockHtml(b) {
   if (b.t === 'h') return `<h4>${esc(R(b.x))}</h4>`;
   if (b.t === 'p') return `<p>${esc(R(b.x))}</p>`;
   if (b.t === 'pm') return `<p class="muted">${esc(R(b.x))}</p>`;
-  if (b.t === 'table') return `<div class="mtable ${b.cls || ''}"><div class="mh">${b.cols.map(c => `<span>${esc(c)}</span>`).join('')}</div>${b.rows.map(r => `<div class="mr">${r.map(c => `<span>${esc(c)}</span>`).join('')}</div>`).join('')}</div>`;
+  if (b.t === 'lines') return `<div class="lines">${b.x.map(l => `<div>${esc(l)}</div>`).join('')}</div>`;
+  if (b.t === 'zones') return `<div class="ztable">${z26Rows(b.disc, S.zones)}</div>`;
+  if (b.t === 'table') return `<div class="mtable ${b.cls || ''}${b.cls === 'm8' ? ' scroll' : ''}"><div class="mh">${b.cols.map(c => `<span>${esc(c)}</span>`).join('')}</div>${b.rows.map(r => `<div class="mr">${r.map(c => `<span>${esc(c)}</span>`).join('')}</div>`).join('')}</div>`;
   if (b.t === 'blocks') return PM.blocks().map(x => `<h4>${esc(T(x.h))}</h4><p>${esc(T(x.t))}</p><p class="muted">${esc(T(x.m))}</p>`).join('');
   if (b.t === 'master') {
-    return `<div class="mtable"><div class="mh"><span>Wk</span><span>Phase</span><span>${L('Hours', 'Std.')}</span><span>${PM.lbl[0]}</span><span>${PM.lbl[1]}</span></div>${PL.weeks.map(w => { const c = sched().indexOf(w.n) + 1; return `<a href="#/week/${c}" class="mr"><span>${w.n}</span><span>${esc(T(w.phase))}<small>${esc(T(w.focus))} · ab ${fmtDMY(dateFor(c, 0))}</small></span><span>${hoursFmt(w, PM.kpis[0][3])}</span><span>${w.longBike}</span><span>${w.longRun}</span></a>`; }).join('')}</div>`;
+    return `<div class="mtable"><div class="mh"><span>Wk</span><span>Phase</span><span>${L('Hours', 'Std.')}</span><span>${PM.lbl[0]}</span><span>${PM.lbl[1]}</span></div>${PL.weeks.map(w => { const c = sched().indexOf(w.n) + 1; return `<a href="#/week/${c}" class="mr"><span>${w.n}</span><span>${esc(T(w.phase))}<small>${esc(T(w.focus))} · ab ${fmtDMY(dateFor(c, 0))}${PM.masterExtra ? ' · ' + esc(PM.masterExtra(w)) : ''}</small></span><span>${hoursFmt(w, PM.kpis[0][3])}</span><span>${w.longBike}</span><span>${w.longRun}</span></a>`; }).join('')}</div>`;
   }
   return '';
 }
@@ -443,8 +509,8 @@ function viewSettings() {
   <section class="card rise" ${staggerAttr(3)}><h3>Garmin-Workflow</h3><ul class="plain">
     <li><b>Aktiv:</b> Training in Garmin durchführen → Werte in der App eintragen (Dauer, Distanz, Pace, HF, RPE …) → Tages-Checkliste ausfüllen.</li>
     <li><b>Aktiv:</b> In der Einheit „Garmin-Datei einlesen“: Aktivität in Garmin Connect (Web) als <i>.tcx</i> oder <i>.gpx</i> exportieren und einlesen – Dauer, Distanz und HF werden vorausgefüllt.</li>
-    <li><b>Aktiv:</b> Workouts als <i>.fit</i> exportieren (pro Einheit oder als Wochen-ZIP${PM.zoneModel === 'ftp' ? ', mit deinen aktuellen Watt-/HF-/Pace-Zielen' : ', als Zeit-Schritte mit Lauf-/Geh-Intervallen'}). Datei per USB auf die Uhr kopieren: Ordner <i>GARMIN/NewFiles</i> (bzw. <i>GARMIN/Workouts</i>). Danach erscheint sie im Trainingsmenü der Uhr.</li>
+    <li><b>Aktiv:</b> Workouts als <i>.fit</i> exportieren (pro Einheit oder als Wochen-ZIP${PM.zoneModel === 'ftp' ? ', mit deinen aktuellen Watt-/HF-/Pace-Zielen' : PM.zoneModel === 'fts' ? ', mit deinen aktuellen Watt-/Pace-Zielen; Koppeleinheiten als zwei Workouts (Rad, Lauf)' : ', als Zeit-Schritte mit Lauf-/Geh-Intervallen'}). Datei per USB auf die Uhr kopieren: Ordner <i>GARMIN/NewFiles</i> (bzw. <i>GARMIN/Workouts</i>). Danach erscheint sie im Trainingsmenü der Uhr.</li>
     <li><b>Nicht möglich:</b> direkte Garmin-Connect-Verbindung (die Schnittstelle ist nicht frei zugänglich).</li></ul></section>
-  <section class="card rise" ${staggerAttr(4)}><h3>Auf dem iPhone installieren</h3><p class="muted small">Safari öffnen → Teilen-Symbol → „Zum Home-Bildschirm“. Danach startet die App im Vollbild und funktioniert offline.${PM.zoneModel === 'ftp' ? ' Die Zonen-Erinnerung erscheint beim Öffnen der App (Wochenstart).' : ''}</p></section>
+  <section class="card rise" ${staggerAttr(4)}><h3>Auf dem iPhone installieren</h3><p class="muted small">Safari öffnen → Teilen-Symbol → „Zum Home-Bildschirm“. Danach startet die App im Vollbild und funktioniert offline.${PM.zoneModel !== 'rpe' ? ' Die Zonen-Erinnerung erscheint beim Öffnen der App (Wochenstart).' : ''}</p></section>
   <section class="card rise" ${staggerAttr(5)}><h3>Plan wechseln / Zurücksetzen</h3><p class="muted small">Löscht alle Daten auf diesem Gerät und startet mit der Plan-Auswahl und dem Onboarding neu. Erstelle vorher ein Backup, wenn du die Daten behalten willst.</p><button class="btn danger" data-act="resetAll">Alles löschen &amp; neu starten</button></section>`;
 }

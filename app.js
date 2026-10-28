@@ -27,6 +27,10 @@ function validateZones(o) {
   const ftp = num(o.ftp), css = parseMMSS(o.css), runThr = o.runThr ? parseMMSS(o.runThr) : null;
   if (!ftp || ftp < 80 || ftp > 600) return { err: 'FTP bitte in Watt angeben (80–600).' };
   if (!css || css < 60 || css > 200) return { err: 'CSS bitte als mm:ss pro 100 m angeben (z. B. 1:45).' };
+  if (PM.zoneModel === 'fts') {
+    if (!runThr || runThr < 150 || runThr > 600) return { err: 'Lauf-Schwellenpace S bitte als mm:ss pro km angeben (z. B. 4:40).' };
+    return { z: { ftp: Math.round(ftp), css: Math.round(css), runThr: Math.round(runThr) } };
+  }
   const hr = [];
   for (let i = 0; i < 5; i++) {
     const lo = num(o.hr[i][0]), hi = num(o.hr[i][1]);
@@ -45,10 +49,11 @@ const OB = OB_FRESH();
 const hrTemplate = i => ['Z1 Sehr leicht', 'Z2 Leicht', 'Z3 Aerob', 'Z4 Schwelle', 'Z5 Maximum'][i];
 const obSteps = () => !OB.plan ? ['choose'] : PM.zoneModel === 'ftp'
   ? ['choose', 'intro', 'about', 'end', 'ftp', 'css', 'hr', 'runthr', 'summary']
-  : ['choose', 'intro', 'about', 'end', 'summary'];
+  : PM.zoneModel === 'fts' ? ['choose', 'intro', 'about', 'end', 'ftp', 'css', 'runthr', 'summary']
+    : ['choose', 'intro', 'about', 'end', 'summary'];
 
 function obErr(id) {
-  const ftpPlan = PM.zoneModel === 'ftp';
+  const ftpPlan = PM.zoneModel !== 'rpe';
   if (id === 'about') {
     if (!OB.name.trim()) return 'Bitte deinen Namen eintragen.';
     const w = num(OB.weight);
@@ -62,6 +67,7 @@ function obErr(id) {
   if (id === 'ftp') { const f = num(OB.ftp); if (!f || f < 80 || f > 600) return 'FTP bitte in Watt eintragen (80–600).'; }
   if (id === 'css') { const c = parseMMSS(OB.css); if (!c || c < 60 || c > 200) return 'CSS bitte als mm:ss pro 100 m eintragen (z. B. 1:45).'; }
   if (id === 'hr') { const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: '' }); if (r.err && /HF/.test(r.err)) return r.err; }
+  if (id === 'runthr' && PM.zoneModel === 'fts') { const r = parseMMSS(OB.runThr); if (!r || r < 150 || r > 600) return 'Lauf-Schwellenpace S bitte als mm:ss pro km eintragen (z. B. 4:40).'; }
   if (id === 'runthr' && OB.runThr) { const r = parseMMSS(OB.runThr); if (!r || r < 150 || r > 600) return 'Pace bitte als mm:ss pro km (z. B. 4:40) oder leer lassen.'; }
   return null;
 }
@@ -83,18 +89,23 @@ function obStepHtml() {
       Object.values(window.PLANS).map(P => { const c = P.meta.card; return `<button type="button" class="card plancard" data-act="pickPlan" data-plan="${P.meta.id}"><h3>${esc(c.title)}</h3><p>${esc(c.tagline)}</p><div class="chips">${c.facts.map(f => `<span>${esc(f)}</span>`).join('')}</div><p class="muted small">${esc(c.needs)}</p><span class="go">Plan auswählen ›</span></button>`; }).join('');
   }
   if (id === 'intro') body = `<div class="ob-hero"><div class="orb"><i></i><i></i><i></i></div><h1>${PM.heroTitle}</h1><p>${esc(PM.heroText)}</p><p class="muted small">${esc(PM.card.title)}</p></div>`;
-  if (id === 'about') body = `<h2>Über dich</h2><p class="muted">Damit die App dich persönlich ansprechen kann.</p>${inp('Name *', 'name', OB.name, 'autocomplete="given-name"')}${inp(PM.zoneModel === 'ftp' ? 'Gewicht (kg) *' : 'Gewicht (kg) – optional', 'weight', OB.weight, 'inputmode="decimal" placeholder="75"')}`;
+  if (id === 'about') body = `<h2>Über dich</h2><p class="muted">Damit die App dich persönlich ansprechen kann.</p>${inp('Name *', 'name', OB.name, 'autocomplete="given-name"')}${inp(PM.zoneModel !== 'rpe' ? 'Gewicht (kg) *' : 'Gewicht (kg) – optional', 'weight', OB.weight, 'inputmode="decimal" placeholder="75"')}`;
   if (id === 'end') body = `<h2>${esc(PM.endTitle)}</h2><p class="muted">${esc(PM.endIntro)}</p>${PM.askEventName ? inp('Rennname *', 'raceName', OB.raceName) : ''}<label class="fld"><span>${esc(PM.endField)}</span><input type="date" data-ob="raceDate" value="${OB.raceDate}" min="${todayIso()}"></label><div id="obRaceInfo">${obEndInfo()}</div>`;
   if (id === 'ftp') body = `<h2>Rad · FTP</h2><p class="muted">Deine aktuelle Functional Threshold Power. Daraus werden alle Wattbereiche des Plans berechnet (z. B. Z2 = 56–75 %).</p>${inp('Aktuelle FTP (Watt) *', 'ftp', OB.ftp, 'inputmode="numeric" placeholder="250"')}<div id="obFtp">${obFtpPrev()}</div>`;
   if (id === 'css') body = `<h2>Schwimmen · CSS</h2><p class="muted">Critical Swim Speed als Pace pro 100 m. Daraus entstehen Technik-, Race- und Schwellen-Paces.</p>${inp('Aktuelle CSS (mm:ss / 100 m) *', 'css', OB.css, 'placeholder="1:45" inputmode="text" autocapitalize="off" autocorrect="off"')}
     <div class="card mini"><p class="eyebrow">CSS aus Test berechnen</p><div class="fields">${inp('400 m (mm:ss)', 't400', OB.t400, 'placeholder="6:10"')}${inp('200 m (mm:ss)', 't200', OB.t200, 'placeholder="2:55"')}</div><button class="btn ghost sm" data-act="obCss">Berechnen &amp; übernehmen</button></div>`;
   if (id === 'hr') body = `<h2>Herzfrequenz-Zonen</h2><p class="muted">Deine 5 Garmin-Zonen (Garmin Connect → Benutzereinstellungen → Herzfrequenzbereiche).</p><div class="hrgrid">${OB.hr.map((r, i) => `<div class="hrrow"><span>${hrTemplate(i)}</span><input data-ob="hr.${i}.0" value="${esc(r[0])}" inputmode="numeric" placeholder="von"><em>–</em><input data-ob="hr.${i}.1" value="${esc(r[1])}" inputmode="numeric" placeholder="bis"></div>`).join('')}</div>`;
-  if (id === 'runthr') body = `<h2>Lauf-Schwelle <small class="opt">optional</small></h2><p class="muted">Deine aktuelle Schwellen-Pace (z. B. aus dem Lauftest in Woche 1). Damit zeigt die App zusätzlich Pace-Bereiche. Ohne Angabe steuerst du den Lauf per HF und RPE – wie im Plan.</p>${inp('Schwellen-Pace (mm:ss / km)', 'runThr', OB.runThr, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}`;
+  if (id === 'runthr' && PM.zoneModel === 'fts') body = `<h2>Laufen · Schwellenpace S</h2><p class="muted">Deine Lauf-Schwellenpace pro km (Test: 30 min max. gleichmäßig, Ø-Pace der letzten 20 min). Daraus entstehen Grundlage-, Tempo-, Renntempo- und VO2-Paces. Falls du keinen aktuellen Wert hast: vor Woche 1 testen.</p>${inp('Schwellenpace S (mm:ss / km) *', 'runThr', OB.runThr, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}`;
+  if (id === 'runthr' && PM.zoneModel !== 'fts') body = `<h2>Lauf-Schwelle <small class="opt">optional</small></h2><p class="muted">Deine aktuelle Schwellen-Pace (z. B. aus dem Lauftest in Woche 1). Damit zeigt die App zusätzlich Pace-Bereiche. Ohne Angabe steuerst du den Lauf per HF und RPE – wie im Plan.</p>${inp('Schwellen-Pace (mm:ss / km)', 'runThr', OB.runThr, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}`;
   if (id === 'summary') {
     const start = planStartFor(OB.raceDate); const d = diffDays(start, todayIso());
     const when = d > 0 ? `Start in ${d} Tagen` : d === 0 ? 'Start heute' : `Einstieg in Woche ${Math.floor(-d / 7) + 1}`;
     const planCard = `<div class="card mini calc-card"><p class="eyebrow">Plan</p><p><b>${esc(fmtDateLong(start))}</b> bis <b>${esc(fmtDateLong(OB.raceDate))}</b><br><span class="muted small">${esc(PM.askEventName ? OB.raceName : PM.card.title)} · ${when}</span></p></div>`;
-    if (PM.zoneModel === 'ftp') {
+    if (PM.zoneModel === 'fts') {
+      const r = validateZones({ ftp: OB.ftp, css: OB.css, runThr: OB.runThr });
+      if (r.err) body = `<h2>Fast fertig</h2><p class="warn">${esc(r.err)}</p>`;
+      else { const z = r.z; body = `<h2>Alles bereit, ${esc(OB.name.split(' ')[0])}</h2>${planCard}<div class="card mini"><p class="eyebrow">Deine Zonen (Auszug)</p><div class="ztable">${['Z2', 'SS', 'RW'].map(c => `<div class="zr c-bike"><span>Rad ${c}</span><b>${esc(z26Range('bike', c, z))}</b></div>`).join('')}${['Z2', 'RT'].map(c => `<div class="zr c-run"><span>Lauf ${c}</span><b>${esc(z26Range('run', c, z))}</b></div>`).join('')}${['A', 'RT'].map(c => `<div class="zr c-swim"><span>Schwimmen ${c}</span><b>${esc(z26Range('swim', c, z))}</b></div>`).join('')}</div></div>`; }
+    } else if (PM.zoneModel === 'ftp') {
       const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
       if (r.err) body = `<h2>Fast fertig</h2><p class="warn">${esc(r.err)}</p>`;
       else {
@@ -135,14 +146,14 @@ function openZoneUpdate(prefill = {}, intro = '') {
   openSheet(`<div class="sheet-in"><h2>Zonen aktualisieren</h2><p class="muted">${intro || 'Trage deine aktuellen Werte ein (z. B. aus Garmin). Der Plan rechnet alle noch offenen Einheiten neu – oder bleibt gleich, wenn sich nichts ändert.'}</p>
   <form id="zform" onsubmit="return false"><div class="fields">${field('FTP (W)', 'ftp', p.ftp, 'inputmode="numeric"')}${field('CSS (mm:ss /100 m)', 'css', p.css)}</div>
   <div class="card mini"><p class="eyebrow">CSS aus Test</p><div class="fields">${field('400 m', 't400', '', 'placeholder="6:10"')}${field('200 m', 't200', '', 'placeholder="2:55"')}</div><button type="button" class="btn ghost sm" data-act="zCss">Berechnen &amp; übernehmen</button></div>
-  <label class="lbl">Garmin-HF-Zonen (bpm)</label><div class="hrgrid">${z.hr.map((r, i) => `<div class="hrrow"><span>${hrNames[i]}</span><input name="hr${i}0" value="${r[0]}" inputmode="numeric"><em>–</em><input name="hr${i}1" value="${r[1]}" inputmode="numeric"></div>`).join('')}</div>
-  ${field('Lauf-Schwellen-Pace (mm:ss /km, optional)', 'runThr', p.runThr)}
+  ${z.hr ? `<label class="lbl">Garmin-HF-Zonen (bpm)</label><div class="hrgrid">${z.hr.map((r, i) => `<div class="hrrow"><span>${hrNames[i]}</span><input name="hr${i}0" value="${r[0]}" inputmode="numeric"><em>–</em><input name="hr${i}1" value="${r[1]}" inputmode="numeric"></div>`).join('')}</div>` : ''}
+  ${field(PM.zoneModel === 'fts' ? 'Lauf-Schwellenpace S (mm:ss /km)' : 'Lauf-Schwellen-Pace (mm:ss /km, optional)', 'runThr', p.runThr)}
   <label class="fld"><span>Grund</span><select name="reason" class="sel"><option>Wöchentliche Kontrolle</option><option>Test / Retest</option><option>Neue Garmin-Werte</option><option>Sonstiges</option></select></label>
   <div id="zErr" class="err"></div><div class="btns"><button type="button" class="btn primary" data-act="zSave">Speichern &amp; Plan aktualisieren</button><button type="button" class="btn ghost" data-act="closeSheet">Abbrechen</button></div></form></div>`);
 }
 function readZoneForm() {
   const f = $('#zform'); const g = n => f.querySelector(`[name="${n}"]`).value;
-  return { ftp: g('ftp'), css: g('css'), hr: [0, 1, 2, 3, 4].map(i => [g(`hr${i}0`), g(`hr${i}1`)]), runThr: g('runThr'), reason: g('reason') };
+  return { ftp: g('ftp'), css: g('css'), hr: S.zones.hr ? [0, 1, 2, 3, 4].map(i => [g(`hr${i}0`), g(`hr${i}1`)]) : null, runThr: g('runThr'), reason: g('reason') };
 }
 
 /* ---------- Formulare lesen ---------- */
@@ -200,7 +211,7 @@ const actions = {
   obCss() { const a = parseMMSS(OB.t400), b = parseMMSS(OB.t200); if (!a || !b || a <= b) { $('#obErr').textContent = 'Bitte 400 m und 200 m Zeiten (mm:ss) eintragen – 400 m muss länger dauern.'; return; } OB.css = fmtMMSS(Zn.cssFromTests(a, b)); renderOB(); toast('CSS berechnet: ' + OB.css + ' /100 m', 'ok'); },
   obFinish() {
     let zones = null;
-    if (PM.zoneModel === 'ftp') {
+    if (PM.zoneModel !== 'rpe') {
       const r = validateZones({ ftp: OB.ftp, css: OB.css, hr: OB.hr, runThr: OB.runThr });
       if (r.err) { $('#obErr').textContent = r.err; return; }
       zones = r.z;
@@ -216,7 +227,7 @@ const actions = {
     if (r.err) { $('#zErr').textContent = r.err; return; }
     const old = S.zones; const wk = curWeek();
     const ftpUp = (r.z.ftp - old.ftp) / old.ftp, cssUp = (old.css - r.z.css) / old.css;
-    const testWeek = [1, 8, 12, 13, 17, 18].includes(wk);
+    const testWeek = (PM.testWeeks || []).includes(wk);
     if ((ftpUp > 0.04 || cssUp > 0.03) && !(d.reason === 'Test / Retest' && testWeek)) {
       const ok = await askConfirm('Deutliche Verbesserung übernehmen?', `Laut Plan (Zone-update rule) werden Zonen erst nach <b>bestätigter</b> Leistungssteigerung angehoben – nicht nach einem einzelnen guten Tag. Der Sprung beträgt ${ftpUp > 0.04 ? `FTP +${(ftpUp * 100).toFixed(1)} %` : `CSS ${(cssUp * 100).toFixed(1)} % schneller`}. Ist der Wert durch einen Test oder mehrere Einheiten belegt?`, 'Ja, übernehmen');
       if (!ok) { openZoneUpdate({ ftp: d.ftp, css: d.css, runThr: d.runThr }); return; }
@@ -235,8 +246,10 @@ const actions = {
       l.rpe = num(rad(form, 'rpe')); if (!l.rpe) return toast('Bitte den RPE-Wert wählen.', 'err');
       if ((s.hard || s.test) && !rad(form, 'stable')) return toast('Bitte angeben, ob die Qualität stabil blieb.', 'err');
       if (s.testKind === '5k' && !parseMMSS(val(form, 't5k'))) return toast('Bitte die Zeit für 5 km (mm:ss) eintragen.', 'err');
+      if (s.testKind === 'ftp20' && !(n('testAvgW') > 0)) return toast('Bitte die Ø-Watt des 20-min-Tests eintragen.', 'err');
+      if (s.testKind === 'runthr30' && !parseMMSS(val(form, 'testPace'))) return toast('Bitte die Ø-Pace der letzten 20 min (mm:ss) eintragen.', 'err');
     } else l.minutes = 0;
-    ['dist', 'avgP', 'np', 'cad', 'avgHr', 'qualMin', 'raceMin', 'carbs', 'testFtp', 'contRun'].forEach(k => { const v = n(k); if (v != null) l[k] = v; });
+    ['dist', 'avgP', 'np', 'cad', 'avgHr', 'qualMin', 'raceMin', 'carbs', 'testFtp', 'testAvgW', 'testHr', 'contRun'].forEach(k => { const v = n(k); if (v != null) l[k] = v; });
     ['pace', 't400', 't200', 'testPace', 't5k', 'notes'].forEach(k => { const v = val(form, k); if (v) l[k] = v; });
     ['stable', 'gi', 'coachOk'].forEach(k => { const v = rad(form, k); if (v) l[k] = v; });
     const log = getLog(date);
@@ -246,6 +259,7 @@ const actions = {
     // Test-Ergebnisse -> Zonen vorschlagen
     let pre = null, why = '';
     if (S.zones && l.t400 && l.t200) { const a = parseMMSS(l.t400), b = parseMMSS(l.t200); if (a && b && a > b) { const css = Math.round(Zn.cssFromTests(a, b)); if (css !== S.zones.css) { pre = { css: fmtMMSS(css) }; why = `Aus deinem Test ergibt sich eine CSS von ${fmtMMSS(css)}/100 m.`; } } }
+    if (S.zones && l.testAvgW) { const f = Math.round(l.testAvgW * 0.95); if (f !== S.zones.ftp) { pre = { ...(pre || {}), ftp: f }; why = (why ? why + ' ' : '') + `20-min-Test: Ø ${l.testAvgW} W → FTP = 95 % = ${f} W.`; } }
     if (S.zones && l.testFtp && l.testFtp !== S.zones.ftp) { pre = { ...(pre || {}), ftp: l.testFtp }; why = (why ? why + ' ' : '') + `Dein Testergebnis: FTP ${l.testFtp} W.`; }
     if (S.zones && l.testPace) { const p = parseMMSS(l.testPace); if (p) { pre = { ...(pre || {}), runThr: fmtMMSS(p) }; why = (why ? why + ' ' : '') + `Schwellen-Pace ${fmtMMSS(p)}/km.`; } }
     render(false);
@@ -267,7 +281,7 @@ const actions = {
     if (K.includes('adapt')) { c.energy = rad(form, 'energy') || 'no'; c.weekHard = rad(form, 'weekHard') || 'no'; }
     c.extraMin = num(val(form, 'extraMin')) || 0;
     if (K.includes('junk')) { c.junkOk = rad(form, 'junkOk'); if (!c.junkOk) return toast('Bitte den Junk-Mile-Check beantworten.', 'err'); }
-    if (dm.rest) { c.restKept = rad(form, 'restKept'); if (!c.restKept) return toast('Bitte angeben, ob der Ruhetag eingehalten wurde.', 'err'); }
+    if (dm.rest || dm.restLike) { c.restKept = rad(form, 'restKept'); if (!c.restKept) return toast('Bitte angeben, ob der Ruhetag eingehalten wurde.', 'err'); }
     if (K.includes('spec') && dm.sessions.some(s => s.hard && effective(s).mode !== 'rest')) { c.specOk = rad(form, 'specOk'); if (!c.specOk) return toast('Bitte die Spezifität (Kernintention) beantworten.', 'err'); }
     if (K.includes('intensity') && !dm.rest) { c.specOk = rad(form, 'specOk'); if (!c.specOk) return toast('Bitte die Intensität bewerten.', 'err'); }
     log.check = c; const adj = finalizeDay(date);
@@ -276,7 +290,7 @@ const actions = {
   async reopenDay(t) { reopenDay(t.dataset.date); render(false); },
   saveSettings() {
     const f = $('#setform'); const name = val(f, 'name'), w = num(val(f, 'weight')), rn = PM.askEventName ? val(f, 'raceName') : PM.eventName, rd = val(f, 'raceDate');
-    if (!name || !rn || !rd || (PM.zoneModel === 'ftp' && !w)) return toast('Bitte alle Felder ausfüllen.', 'err');
+    if (!name || !rn || !rd || (PM.zoneModel !== 'rpe' && !w)) return toast('Bitte alle Felder ausfüllen.', 'err');
     if (rd !== S.profile.raceDate) { S.startDate = planStartFor(rd); }
     S.profile = { name, weight: w, raceName: rn, raceDate: rd }; commit(); toast('Gespeichert.', 'ok'); render(false);
   },
