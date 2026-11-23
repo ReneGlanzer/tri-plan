@@ -189,4 +189,59 @@ window.PLANS = {
     },
     get data() { return window.PLAN_T26; }
   }
+,
+
+  cbs: {
+    meta: {
+      id: 'cbs',
+      card: {
+        title: 'Come Back Stronger – 8 Wochen Reha', tagline: 'Aufbau nach Bandscheibenvorfall (LWS): Physio, Kraft, Rad, Schwimmen, Gehen',
+        facts: ['8 Wochen', '4–6 h pro Woche', 'Übungsbibliothek mit Bildern & Videos'],
+        needs: 'Du brauchst nur Name und Startdatum. FTP und CSS sind optional – ohne sie gilt das Gefühl (Z1 sehr locker, Z2 Gesprächstempo).'
+      },
+      zoneModel: 'fts', zoneOptional: true, zoneReminder: false, zonesTab: 'Zonen', hasEnglish: false, testWeeks: [], exec: true, exercises: true, ampel: true, startMode: true,
+      eventName: 'Geh-Lauf-Test', askEventName: false, eventOffset: 0, defaultEnd: null,
+      endKind: 'Plan-Ende', endTitle: 'Dein Start', endField: 'Startdatum (Montag) *', endLabel: 'Geh-Lauf-Test',
+      endIntro: 'Der Plan dauert 8 Wochen und endet mit dem Geh-Lauf-Test am Sonntag der Woche 8. Wähle den Montag, an dem du startest.',
+      endWeekdayWarn: 'Der Plan beginnt montags. Dein gewähltes Startdatum ist ein',
+      eventToday: 'Testtag!', eventDone: 'Test geschafft', doneTitle: 'Plan abgeschlossen',
+      heroTitle: 'Come Back<br>Stronger',
+      heroText: '8 Wochen Reha-Plan nach Bandscheibenvorfall: schmerzfrei vor schnell – aktivieren, stabilisieren, kräftigen, belastbar machen. Mit Übungsbibliothek und Schmerzampel.',
+      titleSplit: null, qualLabel: 'Qualität', keyLabel: 'Test',
+      labels: { 'Purpose': 'Zweck', 'Warm-up': 'Aufwärmen', 'Main set': 'Ausführung', 'Cool-down': 'Ausklang', 'Targets': 'Zonen', 'Coach note': 'Hinweis' },
+      coachLabel: 'Hinweis beachtet?',
+      discs: [{ k: 'physio', label: 'Physio' }, { k: 'strength', label: 'Kraft' }, { k: 'bike', label: 'Rad' }, { k: 'swim', label: 'Schwimmen' }, { k: 'walk', label: 'Gehen' }, { k: 'test', label: 'Test' }],
+      longBike: 'max', longRun: 'walk', longSwim: true, hasRaceMin: false,
+      checks: ['rest', 'volume', 'zones', 'stufe', 'discs', 'ampel'],
+      rules: { maxHours: 7, repeatWeek: false, ampel: true, ampelRepeat: true, testRepeat: true, missedAny: true, nutrition: false, energy: false, painStrong: 'area', painMildOk: false, fatigueMode: 'easy', illnessMode: 'easy', illnessReentry: null, deloadPhase: null, maxRepeats: 4 },
+      msgs: {
+        easy: 'Z1', easyNow: 'locker (Z1)', easySuffix: 'Einheit locker beenden',
+        illnessYes: '', qualityDrop: '',
+        missed: 'Plan-Regel: Ausgelassene Einheiten werden nie am nächsten Tag nachgeholt. Die nächste Einheit läuft wie geplant.',
+        extra: 'Zusatztraining geht auf Kosten der Erholung – in der Reha gilt: schmerzfrei vor mehr.',
+        restBroken: 'Ruhetage sind komplett trainingsfrei (lockeres Gehen ist erlaubt). Erholung ist Teil der Reha.',
+        ampelHigh: 'Schmerzampel ab 4/10 oder Ausstrahlen ins Bein: Übung weglassen, Einheit locker beenden. Eine ausgelassene Einheit wird nie am nächsten Tag nachgeholt.'
+      },
+      ui: {
+        painLabels: [['none', 'Keine'], ['mild', 'Leicht'], ['strong', 'Stark']], painAreas: [['all', 'allgemein']],
+        stableDrop: { bike: 'Leistung gefallen', other: 'Tempo/Leistung gefallen' }, qualField: 'Minuten'
+      },
+      kpis: [['hours', 'Geplanter Umfang', 'Geplanter Umfang', 'hm'], ['ziel', 'Ziel-Umfang der Stufe', 'Ziel-Umfang der Stufe', 'mhm'], ['longBike', 'Langes Rad (Rolle)', 'Langes Rad (Rolle)'], ['longRun', 'Längster Spaziergang', 'Längster Spaziergang'], ['swimDist', 'Schwimmdistanz', 'Schwimmdistanz', 'm'], ['stufe', 'Übungsstufe', 'Übungsstufe', 'stufe']],
+      lbl: ['Rad', 'Spazier.'],
+      charts: {
+        phaseBands: true,
+        vol: { type: 'line', tab: 'Umfang', title: 'Wöchentlicher Trainingsumfang (gestrichelt = Ziel-Umfang der Stufe)', sub: 'Stunden pro Woche – Plan (PDF) vs. Ist', ceiling: 0, ceilLabel: 'Ziel-Umfang der Stufe', targets: true },
+        stufe: { tab: 'Übungsstufen', title: 'Progression der Übungsstufen', sub: 'Physio- und Kraft-Stufe je Woche – Plan (PDF) vs. Ist (Stufe der tatsächlich absolvierten Woche)' },
+        disc: { tab: 'Disziplinen', title: 'Verteilung nach Disziplin pro Woche', sub: 'Stunden je Disziplin – Plan (PDF, breite Balken) vs. Ist (schmale Balken)' },
+        long: { tab: 'Ausdauer', title: 'Entwicklung der Ausdauer-Einheiten', sub: 'Längste Radeinheit (Rolle), Schwimmen und längster Spaziergang in Minuten – Plan (PDF) vs. Ist', labels: ['Längste Radeinheit (Rolle)', 'Längster Spaziergang', 'Schwimmen'], third: true },
+        zone: { tab: 'Zonenzeit', title: 'Trainingszeit pro Zone und Woche (Physio / Kraft ohne Zone)', sub: 'Stunden je Zone – Plan (PDF, breite Balken) vs. Ist (aus den ausgeführten Einheiten geschätzt)', distTitle: 'Intensitätsverteilung gesamt (W1–W8)' },
+        note: () => 'Die Diagramme zeigen den geplanten Trainingsreiz, keine garantierten Ergebnisse.'
+      },
+      moreTitle: () => 'Come Back Stronger',
+      moreSub: () => PL.subtitle,
+      blocks: () => PL.blocks.map(b => ({ ...b, a: b.weeks[0], z: b.weeks[1] })),
+      sections: () => PL.sections
+    },
+    get data() { return window.PLAN_CBS; }
+  }
 };

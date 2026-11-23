@@ -129,6 +129,8 @@ const Z26 = {
 const Z26_ALIAS = { bike: { Z4: 'SS-SW', Z5: 'VO2' }, run: { Z4: 'SW', Z5: 'VO2' } };
 function z26Range(disc, code, z) {
   if (!z) return null;
+  if (disc === 'bike' && !z.ftp) return null; // Reha-Plan: Werte optional
+  if (disc === 'swim' && !z.css) return null;
   if (disc === 'bike') {
     const a = Z26_ALIAS.bike[code];
     if (a === 'SS-SW') return `${Zn.watts(z, 88)}–${Zn.watts(z, 105)} W`;
@@ -166,7 +168,7 @@ function enrich26(text, ctx, z) {
   }
   out += esc(text.slice(last));
   // Legenden: "(56-75 % FTP)", "(S + 45-75 s/km)", "(CSS + 12-15 s/100m)"
-  return out.replace(/\((&lt; )?(\d{2,3})(?:-(\d{2,3}))? % FTP\)/g, (all, lt, a, b) => lt ? `(&lt; ${a} % FTP)${calc('&lt; ' + Zn.watts(z, +a) + ' W')}` : `(${a}${b ? '-' + b : ''} % FTP)${calc(Zn.watts(z, +a) + (b ? '–' + Zn.watts(z, +b) : '') + ' W')}`)
+  return out.replace(/\((&lt; )?(\d{2,3})(?:-(\d{2,3}))? % FTP\)/g, (all, lt, a, b) => !z.ftp ? all : lt ? `(&lt; ${a} % FTP)${calc('&lt; ' + Zn.watts(z, +a) + ' W')}` : `(${a}${b ? '-' + b : ''} % FTP)${calc(Zn.watts(z, +a) + (b ? '–' + Zn.watts(z, +b) : '') + ' W')}`)
     .replace(/\(S ([+−-]|±) (\d+)(?:-(\d+))? s\/km\)/g, (all, sg, a, b) => { if (!z.runThr) return all; const k = (sg === '+' ? 1 : sg === '±' ? 0 : -1); const lo = k === 0 ? -a : k * a, hi = k === 0 ? +a : k * (b || a); return all + calc(runPaceRange(z.runThr + Math.min(lo, hi), z.runThr + Math.max(lo, hi))); })
-    .replace(/\(CSS ([+−-]) (\d+)(?:-(\d+))? s\/100m\)/g, (all, sg, a, b) => { const k = sg === '+' ? 1 : -1; const x = k * a, y = k * (b || a); return all + calc(paceRange(z.css + Math.min(x, y), z.css + Math.max(x, y))); });
+    .replace(/\(CSS ([+−-]) (\d+)(?:-(\d+))? s\/100m\)/g, (all, sg, a, b) => { if (!z.css) return all; const k = sg === '+' ? 1 : -1; const x = k * a, y = k * (b || a); return all + calc(paceRange(z.css + Math.min(x, y), z.css + Math.max(x, y))); });
 }

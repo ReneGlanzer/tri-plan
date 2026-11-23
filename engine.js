@@ -66,7 +66,7 @@ function buildSession(raw, w, dayKey, idx) {
   return {
     id: `w${w}-${dayKey}-${idx}`, week: w, dayKey, idx, raw, title: raw.title, name: raw.name, disc: raw.disc,
     durMin: raw.dur, test: !!raw.test, testKind: raw.testKind || null, quality: !!raw.quality, key: !!raw.key, hard: !!raw.hard,
-    strides: !!raw.strides, long: !!raw.long, brick: !!raw.brick, q: raw.q, r: raw.r, split: raw.split || null
+    strides: !!raw.strides, long: !!raw.long, brick: !!raw.brick, q: raw.q, r: raw.r, split: raw.split || null, ex: raw.ex || null
   };
 }
 function weekSessions(w) {
@@ -310,6 +310,38 @@ function evaluateDay(date) {
     }
   }
 
+  // 8b) Reha-Plan: Schmerzampel (0–10) je Einheit, Ausstrahlen ins Bein, Test
+  if (rules.ampel) {
+    const evsOf = d => {
+      const lg = peekLog(d), loc = locate(d), out = []; if (!lg || !loc) return out;
+      for (const x of daySess(loc.week, loc.dayKey)) { const l = lg.sessions[x.id]; if (l && l.status !== 'no' && (l.ampel >= 4 || l.radiate === 'yes')) out.push({ s: x, l }); }
+      if (lg.check && lg.check.morning === 'worse') out.push({ s: null, l: { morning: true } });
+      return out;
+    };
+    const todayEv = evsOf(date);
+    for (const { s: x, l } of todayEv) push({ src: 'ampel', kind: 'note', targets: [], weekNo: dm.week,
+      what: x ? `${x.name}: Schmerzampel ${l.ampel}/10${l.radiate === 'yes' ? ' · Ausstrahlen ins Bein' : ''}` : 'Schmerz am Morgen schlechter als am Vortag', why: M.ampelHigh });
+    let repeatDone = false;
+    const canRepeat = () => !repeatDone && !S.inserts.some(y => y.at === dm.week) && S.inserts.length < (rules.maxRepeats || 3);
+    if (rules.ampelRepeat && todayEv.length && canRepeat()) {
+      let cnt = 0, radiate = false;
+      for (let i = 0; i < 7; i++) evsOf(dateFor(dm.week, i)).forEach(e => { cnt++; if (e.l.radiate === 'yes') radiate = true; });
+      if (cnt >= 2 || radiate) {
+        repeatDone = true;
+        push({ src: 'ampel', kind: 'repeat', planWeek: dm.pw, targets: [], weekNo: dm.week + 1,
+          what: `Woche ${dm.pw} wird wiederholt – der Plan verlängert sich um 1 Woche`,
+          why: radiate ? 'Ausstrahlen ins Bein gemeldet. Plan-Regel: Neue Stufe nur, wenn die Vorwoche ohne Verschlechterung lief – sonst Woche wiederholen.' : 'Zwei Meldungen mit Schmerzampel ab 4 (oder Verschlechterung am Morgen) in einer Woche. Plan-Regel: Neue Stufe nur, wenn die Vorwoche ohne Verschlechterung lief – sonst Woche wiederholen.' });
+      }
+    }
+    if (rules.testRepeat) for (const x of dm.sessions) {
+      const l = log.sessions[x.id]; if (!x.test || !l || l.status === 'no') continue;
+      const failed = l.ampel > 2 || l.radiate === 'yes' || l.morningAfter === 'no';
+      if (failed) {
+        if (canRepeat()) { repeatDone = true; push({ src: 'test', kind: 'repeat', planWeek: dm.pw, targets: [], weekNo: dm.week + 1, what: `Geh-Lauf-Test nicht bestanden – Woche ${dm.pw} wird wiederholt, Test nach 7 Tagen erneut`, why: 'Kriterien: Schmerzampel während des Tests max. 2, kein Ausstrahlen/Kribbeln, am nächsten Morgen nicht schlechter. Nicht bestanden → Woche 8 wiederholen, Test nach 7 Tagen erneut.' }); }
+      } else push({ src: 'test', kind: 'note', targets: [], weekNo: dm.week, what: l.morningAfter === 'yes' ? 'Geh-Lauf-Test bestanden' : 'Geh-Lauf-Test: Kriterien während des Tests erfüllt', why: (l.morningAfter === 'yes' ? '' : 'Prüfe morgen früh, ob der Schmerz nicht schlechter ist (Tag wieder öffnen und nachtragen). ') + PL.anschluss + '.' });
+    }
+  }
+
   // 9) Wochenende: Wochenumfang
   const capH = (dm.wk.frame && dm.wk.frame[1]) || rules.maxHours;
   if (dm.dayIdx === 6 && capH) {
@@ -375,6 +407,7 @@ function weekStats(w) {
   const disc = {}; PM.discs.forEach(d => disc[d.k] = 0);
   const zone = {}; ZKEYS.forEach(k => zone[k] = 0);
   const st = { minutes: 0, disc, zone, quality: 0, race: 0, longBike: null, longRun: null, done: 0, planned: 0, plannedMin: 0 };
+  if (PM.longSwim) st.longSwim = null;
   for (let i = 0; i < 7; i++) {
     const dk = DAYKEYS[i]; const date = dateFor(w, i); const log = peekLog(date);
     for (const s of daySess(w, dk)) {
@@ -391,6 +424,8 @@ function weekStats(w) {
       st.quality += l.qualMin || 0; st.race += l.raceMin || 0;
       const zm = sessionZoneMin(s, m, eff); if (zm) for (const [z, v] of Object.entries(zm)) if (z in st.zone) st.zone[z] += v;
       if ((s.disc === 'bike' || s.split) && (PM.longBike === 'max' || s.long) && bikeM) st.longBike = Math.max(st.longBike || 0, bikeM);
+      if (PM.longRun === 'walk' && s.disc === 'walk') st.longRun = Math.max(st.longRun || 0, m);
+      if (PM.longSwim && s.disc === 'swim') st.longSwim = Math.max(st.longSwim || 0, m);
       if (runM) {
         const v = PM.longRun === 'cont' ? l.contRun : PM.longRun === 'max' ? runM : (s.long ? m : null);
         if (v != null) st.longRun = Math.max(st.longRun || 0, v);
@@ -417,15 +452,19 @@ function chartSeries() {
     volume: { plan: arr(w => w.hours), ist: ist(st => +(st.minutes / 60).toFixed(2)) },
     disc: { plan: arr((w, c) => PL.disc[planWeekOf(c) - 1]), ist: ist(st => Object.fromEntries(keys.map(k => [k, st.disc[k] / 60]))) },
     quality: { plan: arr(w => w.quality), planRace: arr(w => w.race), ist: ist(st => st.quality), istRace: ist(st => st.race) },
-    long: { planBike: arr(w => minOf(w.longBike)), planRun: arr(w => minOf(w.longRun)), istBike: ist(st => st.longBike), istRun: ist(st => st.longRun) }
+    long: { planBike: arr(w => minOf(w.longBike)), planRun: arr(w => minOf(w.longRun)), istBike: ist(st => st.longBike), istRun: ist(st => st.longRun),
+      ...(PM.longSwim ? { planSwim: arr(w => w.longSwim || 0), istSwim: ist(st => st.longSwim) } : {}) },
+    ...(PM.charts.stufe ? { stufe: { plan: arr(w => w.stufe), ist: ist((st, w) => w.stufe) } } : {}),
+    ...(PM.charts.vol.targets ? { targets: arr(w => (w.ziel || 0) / 60) } : {})
   };
 }
 
 /* ---------- Zonen-Update (nur Pläne mit FTP/CSS/HF) ---------- */
 function zoneDiff(a, b) {
   const d = [];
-  if (a.ftp !== b.ftp) d.push({ k: 'FTP', from: `${a.ftp} W`, to: `${b.ftp} W`, pct: (b.ftp - a.ftp) / a.ftp });
-  if (a.css !== b.css) d.push({ k: 'CSS', from: `${fmtMMSS(a.css)}/100 m`, to: `${fmtMMSS(b.css)}/100 m`, pct: (a.css - b.css) / a.css });
+  const fw = v => v ? `${v} W` : '–', fc = v => v ? `${fmtMMSS(v)}/100 m` : '–';
+  if (a.ftp !== b.ftp) d.push({ k: 'FTP', from: fw(a.ftp), to: fw(b.ftp), pct: (b.ftp - a.ftp) / a.ftp });
+  if (a.css !== b.css) d.push({ k: 'CSS', from: fc(a.css), to: fc(b.css), pct: (a.css - b.css) / a.css });
   if (a.hr && b.hr) a.hr.forEach((r, i) => { if (r[0] !== b.hr[i][0] || r[1] !== b.hr[i][1]) d.push({ k: `HF Z${i + 1}`, from: `${r[0]}–${r[1]}`, to: `${b.hr[i][0]}–${b.hr[i][1]}` }); });
   if ((a.runThr || 0) !== (b.runThr || 0)) d.push({ k: 'Lauf-Schwelle', from: a.runThr ? fmtMMSS(a.runThr) + '/km' : '–', to: b.runThr ? fmtMMSS(b.runThr) + '/km' : '–' });
   return d;
@@ -451,7 +490,7 @@ function applyZoneUpdate(newZ, reason) {
   return diff;
 }
 const zonesDue = (today = todayIso()) => {
-  if (!S || !S.zones || PM.zoneModel === 'rpe') return false;
+  if (!S || !S.zones || PM.zoneModel === 'rpe' || PM.zoneReminder === false) return false;
   if (curWeek(today) === 0 || curWeek(today) === TW() + 1) return false;
   if (diffDays(today, S.zones.updated) < 7) return false;
   return S.snoozeZone !== today;

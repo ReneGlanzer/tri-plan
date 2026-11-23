@@ -1,7 +1,7 @@
 ﻿/* SVG-Diagramme: Plan (laut PDF) vs. Ist – für beliebig viele Wochen */
 'use strict';
 const CH = {};
-const COL = { Z1: '#9dc4ee', Z2: '#6aa84f', Z3: '#f1c232', Z4: '#e69138', Z5: '#e00000', swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', mob: '#b48cff', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24', q: '#c084fc', v: '#9db8ff' };
+const COL = { physio: '#b48cff', walk: '#3ddc84', test: '#a0522d', Z1: '#9dc4ee', Z2: '#6aa84f', Z3: '#f1c232', Z4: '#e69138', Z5: '#e00000', swim: '#3aa0ff', bike: '#ff8a2a', run: '#3ddc84', strength: '#ff4d6d', mob: '#b48cff', vol: '#9db8ff', qual: '#c084fc', race: '#fbbf24', q: '#c084fc', v: '#9db8ff' };
 const CW_ = 360, CH_ = 240, ML = 36, MR = 12, MT = 14, MB = 40;
 let CHN = 20; // Anzahl Wochen im aktuellen Diagramm
 const setChartN = n => { CHN = n; };
@@ -23,6 +23,7 @@ const pathOf = (vals, xf, yf) => {
   vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${xf(i).toFixed(1)},${yf(v).toFixed(1)}`; pen = true; });
   return d;
 };
+const stepPath = (vals, xf, yf) => { let d = ''; vals.forEach((v, i) => { if (v == null) return; const x = xf(i), y = yf(v); if (!d) d = `M${x.toFixed(1)},${y.toFixed(1)}`; else { const px = xf(i - 1), xm = (px + x) / 2; d += `L${xm.toFixed(1)},${yf(vals[i - 1]).toFixed(1)}L${xm.toFixed(1)},${y.toFixed(1)}L${x.toFixed(1)},${y.toFixed(1)}`; } }); return d; };
 const xTicks = () => { const t = [1]; for (let w = 5; w < CHN; w += 5) t.push(w); if (CHN - t[t.length - 1] >= 2) t.push(CHN); return [...new Set(t)]; };
 
 function frame(id, sc, yFmt, xf) {
@@ -63,15 +64,18 @@ function lineChart(id, series, o) {
   const all = []; series.forEach(s => { s.plan.forEach(v => all.push(v)); s.ist.forEach(v => v != null && all.push(v)); });
   if (o.ceiling) all.push(o.ceiling);
   if (o.frames) all.push(frameMax(o));
+  if (o.targets) o.targets.forEach(v => all.push(v));
   const sc = niceScale(o.min != null ? Math.min(o.min, ...all) : Math.min(...all), Math.max(...all) + (o.bands ? (Math.max(...all) - (o.min || 0)) * 0.06 : 0), 5);
   const { g, yf } = frame(id, sc, o.yFmt, xLine);
   let body = g + bandsSvg(o, xLine, (xLine(1) - xLine(0)) / 2, yf) + cwMarker(o.cw, xLine) + ceilLine(o.ceiling, yf, o.ceilLabel);
+  if (o.targets) body += `<path class="frame hi" fill="none" d="${stepPath(o.targets, xLine, yf)}"/>`;
+  const pf = o.step ? stepPath : pathOf;
   series.forEach(s => {
-    body += `<path class="plan" d="${pathOf(s.plan, xLine, yf)}" stroke="${s.color}"/>`;
+    body += `<path class="plan" d="${pf(s.plan, xLine, yf)}" stroke="${s.color}"/>`;
     s.plan.forEach((v, i) => body += `<circle class="pdot" cx="${xLine(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="2" fill="${s.color}"/>`);
   });
   series.forEach(s => {
-    const p = pathOf(s.ist, xLine, yf);
+    const p = (o.step ? stepPath : pathOf)(s.ist, xLine, yf);
     if (p) body += `<path class="ist" pathLength="1" d="${p}" stroke="${s.color}"/>`;
     s.ist.forEach((v, i) => { if (v != null) body += `<circle class="idot" style="animation-delay:${0.5 + i * 0.05}s" cx="${xLine(i).toFixed(1)}" cy="${yf(v).toFixed(1)}" r="3.6" fill="${s.color}"/>`; });
   });

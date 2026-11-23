@@ -1,4 +1,4 @@
-﻿:root{
+:root{
   --bg:#000;--card:#0c0c0f;--card2:#141418;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
   --text:#fff;--muted:#8d8d98;--dim:#5d5d68;
   --swim:#3aa0ff;--bike:#ff8a2a;--run:#3ddc84;--str:#ff4d6d;--acc:#9db8ff;
@@ -299,3 +299,38 @@ ul.plain{margin:10px 0 0;padding-left:18px;display:grid;gap:8px;font-size:14px;c
 .lines{font-size:14px;color:#c9c9d2;line-height:1.5;margin:8px 0}.lines div{min-height:4px}
 .zdef{display:grid;gap:6px;margin-top:8px}
 .dicon.d-brick{background:linear-gradient(135deg,rgba(255,138,42,.2),rgba(61,220,132,.2));color:#ffb066}.dot.d-brick{background:linear-gradient(135deg,#ff8a2a 50%,#3ddc84 50%)}
+
+/* ---------- Reha-Plan: Übungsbibliothek, Schmerzampel, Test ---------- */
+:root{--physio:#b48cff;--walk:#3ddc84;--test:#d08a5a}
+.dicon.d-physio{background:rgba(180,140,255,.14);color:var(--physio)}.dicon.d-walk{background:rgba(61,220,132,.14);color:var(--walk)}.dicon.d-test{background:rgba(208,138,90,.16);color:var(--test)}
+.dot.d-physio{background:var(--physio)}.dot.d-walk{background:var(--walk)}.dot.d-test{background:var(--test)}
+.zr.c-walk{border-color:var(--walk)}
+.exl{display:grid;gap:8px;margin:6px 0}
+.exitem{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;color:inherit;background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:8px 10px 8px 8px;cursor:pointer;transition:transform .2s,border-color .2s}
+.exitem:active{transform:scale(.985);border-color:var(--line2)}
+.exitem img{width:56px;height:56px;border-radius:10px;object-fit:cover;background:#1b1b20;flex:none}
+.exitem .exb{display:grid;gap:2px;min-width:0;flex:1}.exitem .exb b{font-size:14.5px;line-height:1.3}.exitem .exb small{font-size:12.5px;color:var(--muted);line-height:1.35}
+.exitem .chev{color:var(--dim);font-size:22px;flex:none}
+.substnote{font-style:normal;font-size:12px;color:var(--amber);font-weight:600}
+.exlink{color:var(--acc);font-weight:700;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.exsheet h2{font-size:21px;margin-bottom:2px}
+.gal{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;margin:6px -2px;padding:2px}
+.gal img{height:190px;width:auto;max-width:82%;border-radius:14px;object-fit:cover;background:#1b1b20;scroll-snap-align:start;flex:none;cursor:zoom-in}
+.vid{position:relative;display:block;border-radius:14px;overflow:hidden;background:#000;border:1px solid var(--line2);margin:4px 0}
+.vid img{display:block;width:100%;max-height:200px;object-fit:cover;opacity:.8}
+.vid .play{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.92);color:#000;display:grid;place-items:center;font-size:20px;padding-left:4px}
+.vid small{display:block;padding:8px 12px;font-size:12.5px;color:var(--muted)}
+.exdl{display:grid}
+.exdl .dl:first-child{border-top:0}
+.sheet-in.zoom img{width:100%;max-height:70vh;object-fit:contain;border-radius:14px;background:#000}
+.reqs{display:grid;gap:8px}
+.req{display:flex;gap:10px;align-items:flex-start;font-size:14.5px;line-height:1.35;cursor:pointer}
+.req input{width:22px;height:22px;flex:none;margin:0;accent-color:#fff}
+.warnbox{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(255,85,102,.1);border:1px solid rgba(255,85,102,.35);font-size:13.5px;color:#ffd0d5}
+.acc-lite{border:0}
+
+.mtable.wrapfix.m4 .mh,.mtable.wrapfix.m4 .mr{grid-template-columns:minmax(0,.9fr) minmax(0,.7fr) minmax(0,.9fr) minmax(0,1.5fr)}
+.mtable.wrapfix.m3 .mh,.mtable.wrapfix.m3 .mr{grid-template-columns:minmax(0,.7fr) minmax(0,1fr) minmax(0,1fr)}
+.mtable.wrapfix.m2 .mh,.mtable.wrapfix.m2 .mr{grid-template-columns:minmax(0,.7fr) minmax(0,1.6fr)}
+.mtable.wrapfix span{min-width:0;overflow-wrap:anywhere;hyphens:auto}
+.mtable.wrapfix.m4t .mh,.mtable.wrapfix.m4t .mr{grid-template-columns:minmax(0,.6fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.9fr)}

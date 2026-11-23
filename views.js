@@ -1,4 +1,4 @@
-﻿/* Ansichten (planunabhängig; Plan-Eigenheiten kommen aus PM = Plan-Metadaten) */
+/* Ansichten (planunabhängig; Plan-Eigenheiten kommen aus PM = Plan-Metadaten) */
 'use strict';
 
 const IC = {
@@ -16,6 +16,7 @@ const IC = {
   strength: '<path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/>',
   mob: '<path d="M12 21c-4.5-3.2-8-6.4-8-10.5A4.5 4.5 0 0 1 12 8a4.5 4.5 0 0 1 8 2.5c0 4.1-3.5 7.3-8 10.5z"/>',
   race: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  walk: '<circle cx="12" cy="4.5" r="1.7"/><path d="M10 21l1.6-6.5L9.5 12l1-4.5 3 1 2 3.5M10.5 9L7.5 12M12.8 14.5l2.7 6.5"/>',
   rest: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   alert: '<path d="M12 3l10 18H2zM12 10v5M12 18h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
@@ -25,8 +26,8 @@ const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
 };
 const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ''}</svg>`;
-const DISC_IC = { swim: 'swim', bike: 'bike', run: 'run', strength: 'strength', mob: 'mob', brick: 'bike', race: 'race' };
-const DISC_DE = { swim: 'Schwimmen', bike: 'Rad', run: 'Laufen', strength: 'Kraft', mob: 'Mobility', brick: 'Koppel', race: 'Rennen' };
+const DISC_IC = { swim: 'swim', bike: 'bike', run: 'run', strength: 'strength', mob: 'mob', brick: 'bike', race: 'race', physio: 'mob', walk: 'walk', test: 'race' };
+const DISC_DE = { swim: 'Schwimmen', bike: 'Rad', run: 'Laufen', strength: 'Kraft', mob: 'Mobility', brick: 'Koppel', race: 'Rennen', physio: 'Physio', walk: 'Gehen', test: 'Test' };
 const discIc = d => `<span class="dicon d-${d}">${ic(DISC_IC[d])}</span>`;
 const phaseDe = p => T(p);
 
@@ -48,8 +49,52 @@ function resolveTokens(str) {
 const wkNo = c => planWeekOf(c);
 const wkTag = c => isRepeatWeek(c) ? ' · Wiederholung' : '';
 const hoursFmt = (wk, mode) => mode === 'hm' ? (wk.hoursText || '') : `${wk.hours.toFixed(2).replace(/\.?0+$/, '')} h`;
-const fmtM = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' m';
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} h`;
+const fmtM = n => !n ? '–' : String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' m';
 const zoned = () => PM.zoneModel !== 'rpe';
+/* Reha-Plan: Übungsbibliothek (Bilder lokal oder aus dem Medien-Paket) */
+const mediaSrc = f => (window.MEDIA_CBS && window.MEDIA_CBS[f]) || ('assets/exercises/' + f);
+const EXS = () => (window.EX_CBS ? window.EX_CBS.list : []);
+const exById = id => EXS().find(e => e.id === id) || null;
+const freigabeOk = () => !!(S.freigabe && S.freigabe.ok);
+function exResolve(it) {
+  if (PL.freigabe && it.id === 'K15' && !freigabeOk()) { const e = exById('K12'); return { id: 'K12', d: e ? e.dos : it.d, subst: true }; }
+  return { id: it.id, d: it.d };
+}
+const exLinkify = html => PM.exercises ? html.replace(/\b([PK]\d\d)\b(?![^<]*>)/g, (m, id) => exById(id) ? `<a class="exlink" data-act="openEx" data-id="${id}">${id}</a>` : m) : html;
+const exThumb = e => e.imgs[0] ? mediaSrc(e.imgs[0]) : (e.video ? mediaSrc(e.video.thumb) : '');
+function exItemHtml(id, dos, note) {
+  const e = exById(id); if (!e) return `<div class="exitem">${esc(id)}</div>`;
+  return `<button type="button" class="exitem" data-act="openEx" data-id="${id}"><img src="${exThumb(e)}" alt="" loading="lazy"><span class="exb"><b>${esc(id)} · ${esc(e.name)}</b>${note ? `<em class="substnote">${note}</em>` : ''}<small>${esc(dos || e.dos)}</small></span><span class="chev">›</span></button>`;
+}
+function exerciseHtml(id) {
+  const e = exById(id); if (!e) return '<div class="sheet-in"><h2>Übung nicht gefunden</h2></div>';
+  const dl = (k, v) => v ? `<div class="dl"><dt>${k}</dt><dd>${esc(v)}</dd></div>` : '';
+  const gal = e.imgs.length ? `<div class="gal">${e.imgs.map((f, i) => `<img src="${mediaSrc(f)}" alt="${esc(e.name)} – Bild ${i + 1}" data-act="zoomImg" data-f="${f}" data-id="${id}">`).join('')}</div>` : '';
+  const vid = e.video ? `<a class="vid" href="${esc(e.video.url)}" target="_blank" rel="noopener noreferrer"><img src="${mediaSrc(e.video.thumb)}" alt="Video: ${esc(e.name)}"><span class="play">▶</span><small>Video auf YouTube ansehen</small></a>` : '';
+  return `<div class="sheet-in exsheet"><p class="eyebrow">${esc(id)} · ${e.kat === 'physio' ? 'Physio' : 'Kraft'} · Stufe ${e.stufe}</p><h2>${esc(e.name)}</h2>${gal}${vid}<div class="exdl">${dl('Ziel', e.ziel)}${dl('Ausgangsstellung', e.start)}${dl('Ausführung', e.ausf)}${dl('Dosierung', e.dos)}${dl('Material', e.material)}${dl('Hinweis', e.hinweis)}</div><p class="muted small">Quelle: ${esc(e.quelle)} · Bilder und Videos nur für private Nutzung.</p><div class="btns"><button class="btn primary" data-act="closeSheet">Schließen</button></div></div>`;
+}
+function exBlock(s) {
+  let out = '';
+  if (s.ex) {
+    const hasK15 = s.ex.some(i => i.id === 'K15');
+    out += `<div class="dl"><dt>Übungen</dt><dd><div class="exl">${s.ex.map(it => { const r = exResolve(it); return exItemHtml(r.id, r.d, r.subst ? 'Ersatz für K15 – Freigabe Kreuzheben fehlt' : ''); }).join('')}</div>${hasK15 ? (freigabeOk() ? `<p class="muted small">✓ Freigabe Kreuzheben bestätigt · <a class="exlink" data-act="freigabeOff">zurücknehmen</a></p>` : `<button type="button" class="btn ghost sm" data-act="freigabe">Freigabe Kreuzheben prüfen</button>`) : ''}</dd></div>`;
+  }
+  if (s.test) {
+    const T_ = PL.test, req = S.req || {};
+    out += `<div class="dl"><dt>Geh-Lauf-Test</dt><dd><p class="muted small" style="margin-bottom:6px">Voraussetzungen vor dem Test (abhaken):</p><div class="reqs">${T_.voraussetzungen.map((v, i) => `<label class="req"><input type="checkbox" data-act-change="toggleReq" data-i="${i}" ${req[i] ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('')}</div><p class="muted small" style="margin:10px 0 4px">Bestanden, wenn:</p><ul class="plain">${T_.bestanden.map(v => `<li>${esc(v)}</li>`).join('')}</ul><p class="muted small">${esc(T_.danach)}</p></dd></div>`;
+  }
+  return out;
+}
+function freigabeCardHtml(dm) {
+  const F = PL.freigabe; if (!F || freigabeOk() || dm.pw < F.woche) return '';
+  return `<section class="card alert-card rise" ${staggerAttr(2)}><div class="row"><span class="ico-badge amber">${ic('check')}</span><div><h3>Freigabe-Check Kreuzheben</h3><p>${esc(F.kriterium)}. Bis zur Bestätigung wird in Stufe 4 K12 Goblet Box Squat statt K15 Kettlebell-Kreuzheben angezeigt.</p></div></div><div class="btns"><button class="btn primary" data-act="freigabe">Freigabe prüfen</button></div></section>`;
+}
+function regelnCardHtml() {
+  const R = PL.regeln; if (!R) return '';
+  return `<details class="card acc-lite rise" ${staggerAttr(11)}><summary>Regeln im Alltag &amp; Schmerzampel</summary><ul class="plain"><li><b>Schmerzampel:</b> ${esc(R.schmerzampel)}</li><li><b>Nachholen:</b> ${esc(R.nachholen)}</li><li><b>Stufenwechsel:</b> ${esc(R.stufenwechsel)}</li><li><b>Kraft:</b> ${esc(R.kraft_steigerung)}</li><li><b>Morgens:</b> ${esc(R.morgens)}</li><li><b>Alltag:</b> ${exLinkify(esc(R.alltag))}</li></ul><p class="warnbox"><b>Sofort zum Arzt:</b> ${esc(R.sofort_arzt)}</p></details>`;
+}
+const ampelYesterday = date => { const l = locate(addDays(date, -1)); if (!l) return false; const lg = peekLog(addDays(date, -1)); return !!(lg && daySess(l.week, l.dayKey).some(x => lg.sessions[x.id] && lg.sessions[x.id].ampel != null && lg.sessions[x.id].status !== 'no')); };
 const ZCOL = { Z1: '#9dc4ee', Z2: '#6aa84f', Z3: '#f1c232', Z4: '#e69138', Z5: '#e00000' };
 
 /* ---------- Kleine Bausteine ---------- */
@@ -107,6 +152,7 @@ function viewHome() {
 
   const dm = dayModel(t); const st = dayState(t);
   const wk = dm.wk;
+  if (PM.exercises) html += freigabeCardHtml(dm);
   html += `<div class="sec-head rise" ${staggerAttr(3)}><h2>Heutiges Training</h2><span class="pill">Woche ${dm.pw}${dm.repeat ? ' (Wdh.)' : ''} · ${esc(phaseDe(wk.phase))}</span></div>`;
   if (dm.restLike) html += `<p class="muted small rise" ${staggerAttr(3)} style="margin:-4px 2px 10px"><span class="tag amber">${esc(dm.restLike)}</span></p>`;
   if (dm.rest) {
@@ -116,6 +162,7 @@ function viewHome() {
   }
   html += `<a class="btn ${st === 'done' ? 'ghost' : 'primary'} wide rise" ${staggerAttr(8)} href="#/day/${t}">${st === 'done' ? 'Tag ansehen' : 'Training öffnen & eintragen'} ${ic('next')}</a>`;
   html += weekStrip(dm.week, t);
+  if (PM.exercises) html += regelnCardHtml();
   return html;
 }
 
@@ -155,7 +202,7 @@ const discCtx = s => s.disc === 'bike' ? 'bike' : s.disc === 'run' ? 'run' : s.d
 function execHtml(s, z, eff) {
   let ctx = discCtx(s); const out = [];
   const line = x => { if (/^Rad:/.test(x)) ctx = 'bike'; else if (/^laufen:/i.test(x)) ctx = 'run'; else if (/^schwimmen:/i.test(x)) ctx = 'swim'; return x; };
-  const row = x => /^(Rad|laufen):$/i.test(x) ? `<div class="ex sub">${esc(x)}</div>` : `<div class="ex">${eff && eff.mode === 'easy' ? enrich26(x.replace(/\b(Z3|Z4|Z5|K3|RW|SS|SW|VO2|RT)\b/g, 'Z2'), ctx, z) : enrich26(x, ctx, z)}</div>`;
+  const row = x => /^(Rad|laufen):$/i.test(x) ? `<div class="ex sub">${esc(x)}</div>` : `<div class="ex">${exLinkify(eff && eff.mode === 'easy' ? enrich26(x.replace(/\b(Z3|Z4|Z5|K3|RW|SS|SW|VO2|RT)\b/g, 'Z2'), ctx, z) : enrich26(x, ctx, z))}</div>`;
   for (const it of s.raw.exec) {
     if (it.t === 'rep') {
       const n = Math.max(1, it.n - (eff && eff.repsMinus || 0));
@@ -187,7 +234,7 @@ function sessionCard(s, date, z, canLog) {
   const tgt = PM.rules.nutrition ? carbTarget(s) : null;
   const planBox = PM.exec ? () => `
     ${detailRow('Purpose', esc(R.Purpose))}
-    <div class="dl"><dt>${PM.labels['Main set']}</dt><dd>${execHtml(s, z, eff)}</dd></div>
+    <div class="dl"><dt>${PM.labels['Main set']}</dt><dd>${execHtml(s, z, eff)}</dd></div>${PM.exercises ? exBlock(s) : ''}
     ${R.zonen ? `<div class="dl"><dt>${PM.labels.Targets}</dt><dd>${legendHtml(s, z)}</dd></div>` : ''}
     ${Object.keys(R.zonenzeit || {}).length ? `<div class="dl"><dt>Zonenzeit</dt><dd>${zoneTimeHtml(R.zonenzeit)}</dd></div>` : ''}
     ${R['Coach note'] || tgt ? `<div class="dl"><dt>${PM.labels['Coach note']}</dt><dd>${esc(R['Coach note'] || '')}${tgt ? `<br><b>Verpflegung: ${tgt[0]}–${tgt[1]} g KH/h</b>` : ''}</dd></div>` : ''}` : () => `
@@ -218,7 +265,7 @@ const radios = (name, opts, cur, cls = '') => `<div class="seg ${cls}" role="rad
 const field = (label, name, val, extra = '') => `<label class="fld"><span>${label}</span><input name="${name}" value="${val ?? ''}" ${extra}></label>`;
 
 function logForm(s, date, l, eff, z) {
-  const ftp = PM.zoneModel !== 'rpe';
+  const ftp = PM.zoneModel !== 'rpe' && !PM.ampel;
   const kind = s.testKind;
   let f = `<form class="logform" data-sid="${s.id}" data-date="${date}" onsubmit="return false">`;
   f += `<div class="grp"><label class="lbl">Status *</label>${radios('status', [['yes', 'Erledigt'], ['partial', 'Teilweise'], ['no', 'Ausgelassen']], l.status)}</div>`;
@@ -228,7 +275,7 @@ function logForm(s, date, l, eff, z) {
   if (s.disc === 'bike') f += field('Distanz (km)', 'dist', l.dist, 'inputmode="decimal"') + field('Ø Leistung (W)' + (ftp ? '' : ' – optional'), 'avgP', l.avgP, 'inputmode="numeric"') + (ftp ? field('NP (W)', 'np', l.np, 'inputmode="numeric"') + field('Ø Trittfrequenz', 'cad', l.cad, 'inputmode="numeric"') : '');
   if (s.disc === 'brick') f += field('Ø Leistung Rad (W)', 'avgP', l.avgP, 'inputmode="numeric"') + field('Ø Pace Lauf (mm:ss /km)', 'pace', l.pace, 'placeholder="5:30"');
   if (s.disc === 'run') f += field('Distanz (km)', 'dist', l.dist, 'inputmode="decimal"') + field('Ø Pace (mm:ss /km)', 'pace', l.pace, 'placeholder="5:30"') + (PM.longRun === 'cont' ? field('Längster Laufabschnitt am Stück (min)', 'contRun', l.contRun, 'inputmode="decimal"') : '');
-  if (s.disc !== 'strength' && s.disc !== 'mob') f += field('Ø Herzfrequenz' + (ftp ? '' : ' – optional'), 'avgHr', l.avgHr, 'inputmode="numeric"');
+  if (s.disc !== 'strength' && s.disc !== 'mob' && s.disc !== 'physio') f += field('Ø Herzfrequenz' + (ftp ? '' : ' – optional'), 'avgHr', l.avgHr, 'inputmode="numeric"');
   f += `</div>`;
   if (kind === 'css') f += `<div class="fields">${field('400 m Zeit (mm:ss)', 't400', l.t400, 'placeholder="6:10"')}${field('200 m Zeit (mm:ss)', 't200', l.t200, 'placeholder="2:55"')}</div><p class="muted small">CSS = (T400 − T200) ÷ 2 pro 100 m – wird nach dem Speichern berechnet und für die Zonen vorgeschlagen.</p>`;
   if (kind === 'ftp') f += `<div class="fields">${field('Testergebnis FTP (W)', 'testFtp', l.testFtp, 'inputmode="numeric"')}</div>`;
@@ -237,7 +284,12 @@ function logForm(s, date, l, eff, z) {
   if (kind === 'runthr30') f += `<div class="fields">${field('Ø-Pace der letzten 20 min (mm:ss /km) *', 'testPace', l.testPace, 'placeholder="4:40" inputmode="text" autocapitalize="off" autocorrect="off"')}${field('Ø-Puls der letzten 20 min', 'testHr', l.testHr, 'inputmode="numeric"')}</div><p class="muted small">Schwellenpace S = Ø-Pace der letzten 20 min; der Ø-Puls ist dein Schwellenpuls.</p>`;
   if (kind === '5k') f += `<div class="fields">${field('Zeit für 5 km (mm:ss) *', 't5k', l.t5k, 'placeholder="32:30" inputmode="text" autocapitalize="off" autocorrect="off"')}</div><p class="muted small">Die Zeit ist laut Plan der Startwert für den nächsten Zyklus.</p>`;
   f += `<div class="grp"><label class="lbl">RPE (1–10) *</label>${radios('rpe', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => [n, n]), l.rpe, 'rpe')}</div>`;
-  if (s.hard || s.test) {
+  if (PM.ampel) {
+    f += `<div class="grp"><label class="lbl">Schmerzampel während der Einheit (0–10) *</label>${radios('ampel', Array.from({ length: 11 }, (_, n) => [n, n]), l.ampel, 'rpe')}<p class="muted small">Bis 3 ok, wenn der Schmerz am nächsten Morgen nicht schlechter ist. Ab 4 oder Ausstrahlen ins Bein: Übung weglassen, Einheit locker beenden.</p></div>`;
+    f += `<div class="grp"><label class="lbl">Ausstrahlen ins Bein / Kribbeln? *</label>${radios('radiate', [['no', 'Nein'], ['yes', 'Ja']], l.radiate)}</div><p class="warnbox"><b>Sofort zum Arzt:</b> ${esc(PL.regeln.sofort_arzt)}</p>`;
+    if (s.test) f += `<div class="grp"><label class="lbl">Am nächsten Morgen nicht schlechter als vorher?</label>${radios('morningAfter', [['open', 'Noch offen'], ['yes', 'Ja'], ['no', 'Nein']], l.morningAfter || 'open')}<p class="muted small">Am nächsten Tag hier nachtragen (Tag wieder öffnen).</p></div>`;
+  }
+  if ((s.hard || s.test) && !PM.ampel) {
     f += `<div class="fields">${field(PM.ui.qualField, 'qualMin', l.qualMin ?? (s.q ?? ''), 'inputmode="numeric"')}${PM.hasRaceMin ? field('davon rennspezifisch (min)', 'raceMin', l.raceMin ?? (s.r ?? 0), 'inputmode="numeric"') : ''}</div>`;
     f += `<div class="grp"><label class="lbl">${s.disc === 'bike' ? 'Leistung stabil? Letzte Wdh. wie die erste? *' : 'Qualität stabil? Letzte Wdh. wie die erste? *'}</label>${radios('stable', [['ok', 'Ja, stabil'], ['drop', s.disc === 'bike' ? PM.ui.stableDrop.bike : PM.ui.stableDrop.other], ['form', 'Technik/Form ließ nach']], l.stable, 'col')}</div>`;
   }
@@ -280,6 +332,8 @@ function dayCheckCard(date, dm) {
     spec: ['Spezifität', () => hasHard ? `<div class="grp"><label class="lbl">Kernintention der Schlüssel-/Qualitätseinheit erfüllt? *</label>${radios('specOk', [['yes', 'Ja'], ['partial', 'Teilweise'], ['no', 'Nein']], c.specOk)}</div>` : '<p class="muted">Keine Qualitäts-/Schlüsseleinheit heute.</p>'],
     junk: ['Junk-Mile-Check', () => `<div class="grp"><label class="lbl">Hatte jede lockere Einheit einen Zweck – kein Füllumfang? *</label>${radios('junkOk', [['yes', 'Ja'], ['no', 'Nein, Füllumfang']], c.junkOk)}</div>`],
     autoreg: ['Auto-Regulation', () => sleepFat],
+    stufe: ['Übungsstufe', () => `<p class="statline">Physio-Stufe <b>${dm.wk.stufe}</b> · Kraft-Stufe <b>${dm.wk.stufe}</b> (${esc(dm.wk.phase)})<br><span class="muted small">Stufenwechsel nur bei stabiler Ampel – sonst Woche wiederholen.</span></p>`],
+    ampel: ['Schmerzampel', () => ampelYesterday(date) ? `<div class="grp"><label class="lbl">Schmerz heute Morgen im Vergleich zu gestern Abend? *</label>${radios('morning', [['better', 'Besser'], ['same', 'Gleich'], ['worse', 'Schlechter']], c.morning)}<p class="muted small">Plan: bis 3/10 ok, wenn es am nächsten Morgen nicht schlechter ist.</p></div>` : '<p class="muted">Gestern ohne Ampel-Eintrag – heute nichts zu vergleichen. Die Ampel trägst du in jeder Einheit ein.</p>'],
     zones: ['Intensitätsverteilung', () => `<p class="statline">Woche bisher (Ist, geschätzt / Plan):<br>${ZKEYS.map(k => `<b style="color:${ZCOL[k]}">${k}</b> ${fmtHM(st.zone[k])} / ${fmtHM((dm.wk.zoneTime || {})[k] || 0)}`).join(' · ')}</p>`],
     discs: ['Disziplinen', () => { const pd = PL.disc[dm.pw - 1] || {}; return `<p class="statline">Woche bisher (Ist / Plan):<br>${PM.discs.map(d => `${d.label} <b>${fmtH(st.disc[d.k])}</b> / ${fmtH((pd[d.k] || 0) * 60)} h`).join(' · ')}</p>`; }],
     intensity: ['Intensität', () => dm.rest ? '<p class="muted">Ruhetag – keine Intensität zu bewerten.</p>' : hasHard
@@ -317,7 +371,7 @@ function viewDay(date) {
 function viewWeek(n) {
   n = clamp(n, 1, TW()); const wk = planWeekData(n); const st = weekStats(n); const cw = curWeek();
   const pct = st.plannedMin ? Math.round(st.minutes / st.plannedMin * 100) : 0;
-  const kv = PM.kpis.map(([k, en, de, fmt]) => `<div><small>${L(en, de)}</small><b>${fmt === 'm' ? fmtM(wk[k]) : fmt ? hoursFmt(wk, fmt) : wk[k]}</b></div>`).join('');
+  const kv = PM.kpis.map(([k, en, de, fmt]) => `<div><small>${L(en, de)}</small><b>${fmt === 'm' ? fmtM(wk[k]) : fmt === 'mhm' ? hoursFmt({ hoursText: hm(wk[k]) }, 'hm') : fmt === 'stufe' ? `Stufe ${wk.stufe}` : fmt ? hoursFmt(wk, fmt) : wk[k]}</b></div>`).join('');
   return `<header class="top rise"><a class="back" href="#/plan">${ic('back')}</a><div class="grow"><p class="eyebrow">${esc(fmtDM(dateFor(n, 0)))} – ${esc(fmtDM(dateFor(n, 6)))}${esc(wkTag(n))}</p><h1>Woche ${wkNo(n)} <small>${esc(phaseDe(wk.phase))}</small></h1></div></header>
   <button class="btn ghost wide rise" data-act="exportWeek" data-week="${n}">${ic('upload')} ${L('Week as Garmin workouts (ZIP)', 'Woche als Garmin-Workouts (ZIP)')}</button>
   <div class="daynav rise">${n > 1 ? `<a class="btn ghost sm" href="#/week/${n - 1}">${ic('back')} Woche ${wkNo(n - 1)}</a>` : '<span></span>'}${n < TW() ? `<a class="btn ghost sm" href="#/week/${n + 1}">Woche ${wkNo(n + 1)} ${ic('next')}</a>` : '<span></span>'}</div>
@@ -338,6 +392,8 @@ function weekCheckSummary(n, i) {
   if (k === 'rest') { const r = logs.find(x => (isRestDay(n, DAYKEYS[x.d]) || planWeekData(n).days[DAYKEYS[x.d]].restLike) && x.c.restKept); return r ? (r.c.restKept === 'yes' ? 'Ruhetag eingehalten ✓' : 'Ruhetag nicht eingehalten ✗') : 'Ruhetag noch offen.'; }
   if (k === 'volume') { const st = weekStats(n); return `Ist ${fmtH(st.minutes)} h von ${fmtH(st.plannedMin)} h · Zusatz ${logs.reduce((a, x) => a + (x.c.extraMin || 0), 0)} min`; }
   if (k === 'spec' || k === 'intensity') { const spec = logs.filter(x => x.c.specOk); if (!spec.length) return k === 'spec' ? 'Keine Qualitätstage erfasst.' : 'Noch keine Bewertung.'; return `Wie vorgegeben: ${spec.filter(x => x.c.specOk === 'yes').length} von ${spec.length} bewerteten Tagen`; }
+  if (k === 'stufe') return `Physio-Stufe ${planWeekData(n).stufe} · Kraft-Stufe ${planWeekData(n).stufe}`;
+  if (k === 'ampel') { let mx = null, hi = 0; for (let d = 0; d < 7; d++) { const lg = peekLog(dateFor(n, d)); if (!lg) continue; for (const x of Object.values(lg.sessions)) if (x.ampel != null) { mx = Math.max(mx ?? 0, x.ampel); if (x.ampel >= 4 || x.radiate === 'yes') hi++; } } return mx == null ? 'Noch keine Ampel-Einträge.' : `Höchste Ampel ${mx}/10 · ${hi}× ab 4 oder Ausstrahlen`; }
   if (k === 'zones') { const st = weekStats(n); const wk = planWeekData(n); return ZKEYS.map(z => `${z} ${fmtHM(st.zone[z])}/${fmtHM((wk.zoneTime || {})[z] || 0)}`).join(' · '); }
   if (k === 'discs') { const st = weekStats(n); const pd = PL.disc[planWeekOf(n) - 1] || {}; return PM.discs.map(d => `${d.label} ${fmtH(st.disc[d.k])}/${fmtH((pd[d.k] || 0) * 60)} h`).join(' · '); }
   if (k === 'junk') { const bad = logs.filter(x => x.c.junkOk === 'no').length; return bad ? `${bad}× Füllumfang gemeldet` : 'Kein Füllumfang gemeldet ✓'; }
@@ -369,7 +425,11 @@ let perfTab = 'vol';
 function viewPerf() {
   const cs = chartSeries(); const cw = cs.cw; const CF = PM.charts; const keys = PM.discs.map(d => d.k);
   setChartN(cs.M);
-  const PERF_TABS = [['vol', CF.vol.tab], ['disc', CF.disc.tab], ['qual', CF.qual.tab], ['long', CF.long.tab]];
+  const PERF_TABS = [['vol', CF.vol.tab]];
+  if (CF.stufe) PERF_TABS.push(['stufe', CF.stufe.tab]);
+  PERF_TABS.push(['disc', CF.disc.tab]);
+  if (CF.qual) PERF_TABS.push(['qual', CF.qual.tab]);
+  PERF_TABS.push(['long', CF.long.tab]);
   if (CF.zone) PERF_TABS.push(['zone', CF.zone.tab]);
   if (!PERF_TABS.some(x => x[0] === perfTab)) perfTab = 'vol';
   const bands = CF.phaseBands ? cs.phases : null;
@@ -384,7 +444,7 @@ function viewPerf() {
     if (C.type === 'bars') {
       const mi = C.mark ? sched().indexOf(C.mark.pw) : -1;
       chart = stackChart('vol', V.plan.map(v => ({ v })), V.ist.map(v => v == null ? null : { v }), { cw, keys: ['v'], ceiling: C.ceiling, ceilLabel: C.ceilLabel, vmarks: mi > 0 ? [{ i: mi, label: C.mark.label }] : [], tip });
-    } else chart = lineChart('vol', [{ color: COL.vol, plan: V.plan, ist: V.ist }], { cw, yFmt: v => v, ceiling: C.ceiling, ceilLabel: '', tip, bands, frames: C.frames ? cs.frames : null });
+    } else chart = lineChart('vol', [{ color: COL.vol, plan: V.plan, ist: V.ist }], { cw, yFmt: v => v, ceiling: C.ceiling, ceilLabel: '', tip, bands, frames: C.frames ? cs.frames : null, targets: C.targets ? cs.targets : null });
     leg = legend([[COL.vol, 'Plan (PDF)', true], [COL.vol, 'Ist'], ['#888', C.ceilLabel, true]]);
     const p = sumTo(V.plan, done), a = sumTo(V.ist, done);
     stats = [['Ist (abgeschl. Wochen)', a.toFixed(1) + ' h'], ['Plan (abgeschl. Wochen)', p.toFixed(1) + ' h'], ['Erfüllung', p ? Math.round(a / p * 100) + ' %' : '–'], ['Aktuelle Woche', cw ? `${(V.ist[cw - 1] ?? 0).toFixed(1)} / ${(+V.plan[cw - 1]).toFixed(1)} h` : '–']];
@@ -404,6 +464,12 @@ function viewPerf() {
       leg = legend([[COL.qual, C.labels[0] + ' Plan', true], [COL.qual, C.labels[0] + ' Ist'], [COL.race, C.labels[1] + ' Plan', true], [COL.race, C.labels[1] + ' Ist']]);
       stats = [[`${C.labels[0]} Ist / Plan`, `${sumTo(Q.ist, done)} / ${sumTo(Q.plan, done)} min`], [`${C.labels[1]} Ist / Plan`, `${sumTo(Q.istRace, done)} / ${sumTo(Q.planRace, done)} min`]];
     }
+  } else if (perfTab === 'stufe') {
+    C = CF.stufe; const St = cs.stufe;
+    chart = lineChart('stufe', [{ color: '#b48cff', plan: St.plan, ist: St.ist }, { color: '#ff4d6d', plan: St.plan, ist: St.ist }], { cw, yFmt: v => (Number.isInteger(v) ? v : ''), min: 0, step: true, bands, tip: i => tipTxt(i, [['Physio-Stufe Plan', St.plan[i], '#b48cff'], ['Kraft-Stufe Plan', St.plan[i], '#ff4d6d'], ['Ist (absolvierte Woche)', St.ist[i] != null ? St.ist[i] : '–', '#fff']]) });
+    leg = legend([['#b48cff', 'Physio-Stufe'], ['#ff4d6d', 'Kraft-Stufe'], ['#888', 'Plan (PDF) gestrichelt', true]]);
+    const cur = cw ? St.plan[Math.min(cw, cs.M) - 1] : null;
+    stats = [['Aktuelle Stufe', cur ? `Stufe ${cur}` : '–'], ['Abgeschlossene Wochen', `${done} von ${cs.M}`]];
   } else if (perfTab === 'zone') {
     C = CF.zone; const Zs = cs.zone; const zk = ZKEYS;
     chart = stackChart('zone', Zs.plan, Zs.ist, { cw, keys: zk, colors: ZCOL, bands, tip: i => { const p = Zs.plan[i], a = Zs.ist[i]; return tipTxt(i, zk.map(k => [k, `${a ? a[k].toFixed(1) : '–'} / ${p[k].toFixed(1)} h`, ZCOL[k]])); } });
@@ -416,8 +482,9 @@ function viewPerf() {
     C = { ...C, extra: `<h4 class="sub">${C.distTitle}</h4><p class="hbar-l">Plan (${fmtHM(tp * 60)}) – Anteile je Zone</p>${bar(pAll, tp)}<p class="hbar-l">Ist bisher (${fmtHM(ta * 60)})</p>${ta ? bar(aAll, ta) : '<p class="muted small">Noch keine Einheiten eingetragen.</p>'}` };
   } else {
     C = CF.long; const G = cs.long;
-    chart = lineChart('long', [{ color: COL.bike, plan: G.planBike, ist: G.istBike }, { color: COL.run, plan: G.planRun, ist: G.istRun }], { cw, yFmt: v => v, min: 0, bands, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', fmtHM(G.planBike[i]), COL.bike], [C.labels[0] + ' Ist', G.istBike[i] != null ? fmtHM(G.istBike[i]) : '–', COL.bike], [C.labels[1] + ' Plan', fmtHM(G.planRun[i]), COL.run], [C.labels[1] + ' Ist', G.istRun[i] != null ? fmtHM(G.istRun[i]) : '–', COL.run]]) });
-    leg = legend([[COL.bike, C.labels[0] + ' Plan', true], [COL.bike, C.labels[0] + ' Ist'], [COL.run, C.labels[1] + ' Plan', true], [COL.run, C.labels[1] + ' Ist']]);
+    const third = C.third && G.planSwim;
+    chart = lineChart('long', [{ color: COL.bike, plan: G.planBike, ist: G.istBike }, { color: COL.run, plan: G.planRun, ist: G.istRun }, ...(third ? [{ color: COL.swim, plan: G.planSwim, ist: G.istSwim }] : [])], { cw, yFmt: v => v, min: 0, bands, tip: i => tipTxt(i, [[C.labels[0] + ' Plan', fmtHM(G.planBike[i]), COL.bike], [C.labels[0] + ' Ist', G.istBike[i] != null ? fmtHM(G.istBike[i]) : '–', COL.bike], [C.labels[1] + ' Plan', fmtHM(G.planRun[i]), COL.run], [C.labels[1] + ' Ist', G.istRun[i] != null ? fmtHM(G.istRun[i]) : '–', COL.run], ...(third ? [[C.labels[2] + ' Plan', fmtHM(G.planSwim[i]), COL.swim], [C.labels[2] + ' Ist', G.istSwim[i] != null ? fmtHM(G.istSwim[i]) : '–', COL.swim]] : [])]) });
+    leg = legend([[COL.bike, C.labels[0] + ' Plan', true], [COL.bike, C.labels[0] + ' Ist'], [COL.run, C.labels[1] + ' Plan', true], [COL.run, C.labels[1] + ' Ist'], ...(third ? [[COL.swim, C.labels[2] + ' Plan', true], [COL.swim, C.labels[2] + ' Ist']] : [])]);
     const last = done - 1; const lb = last >= 0 ? G.istBike[last] : null, lr = last >= 0 ? G.istRun[last] : null;
     stats = [[`Letzte Woche: ${C.labels[0]} (Ist/Plan)`, last >= 0 ? `${lb != null ? fmtHM(lb) : '–'} / ${fmtHM(G.planBike[last])}` : '–'], [`Letzte Woche: ${C.labels[1]} (Ist/Plan)`, last >= 0 ? `${lr != null ? fmtHM(lr) : '–'} / ${fmtHM(G.planRun[last])}` : '–']];
   }
@@ -431,7 +498,7 @@ function viewPerf() {
 
 /* ---------- ZONEN / INTENSITÄTEN ---------- */
 const z26Def = (disc, d) => disc === 'bike' ? (d[0] === 'Z1' ? '< 55 % FTP' : `${d[1]}–${d[2]} % FTP`) : disc === 'run' ? (d[1] === -5 && d[2] === 5 ? 'S ± 5 s/km' : d[1] < 0 ? `S − ${-d[2]}–${-d[1]} s/km` : `S + ${d[1]}–${d[2]} s/km`) : (d[1] === 0 && d[2] === 0 ? 'CSS' : d[1] < 0 ? `CSS − ${-d[2]}–${-d[1]} s/100m` : `CSS + ${d[1]}–${d[2]} s/100m`);
-const z26Rows = (disc, z) => Z26[disc].map(d => `<div class="zr c-${disc}"><span>${d[0]} · ${d[3]}</span><em>${z26Def(disc, d)}</em><b>${z ? esc(z26Range(disc, d[0], z) || '–') : ''}</b></div>`).join('');
+const z26Rows = (disc, z, only) => Z26[disc].filter(d => !only || only.includes(d[0])).map(d => `<div class="zr c-${disc}"><span>${d[0]} · ${d[3]}</span><em>${z26Def(disc, d)}</em><b>${z ? esc(z26Range(disc, d[0], z) || '–') : ''}</b></div>`).join('');
 function viewZones26() {
   const z = S.zones; const nextDue = addDays(z.updated, 7);
   return `<header class="top rise"><div><p class="eyebrow">Stand ${esc(fmtDate(z.updated))} · nächstes Update ${esc(fmtDate(nextDue))}</p><h1>Meine Zonen</h1></div></header>
@@ -443,7 +510,20 @@ function viewZones26() {
   <div class="sec-head rise" ${staggerAttr(5)}><h2>Verlauf</h2></div>
   <section class="card rise" ${staggerAttr(6)}>${S.zoneHistory.slice().reverse().map(h => `<div class="hist"><div class="row between"><b>${h.date === '1970-01-01' ? 'Onboarding' : esc(fmtDate(h.date))}</b><small class="muted">${esc(h.reason || '')}</small></div>${h.diff && h.diff.length ? `<p class="small">${h.diff.map(d => `${esc(d.k)}: ${esc(d.from)} → ${esc(d.to)}`).join('<br>')}</p>` : `<p class="small muted">${h.date === '1970-01-01' ? `FTP ${h.z.ftp} W · S ${fmtMMSS(h.z.runThr)}/km · CSS ${fmtMMSS(h.z.css)}` : 'Unverändert bestätigt'}</p>`}</div>`).join('')}</section>`;
 }
+function viewZonesCbs() {
+  const z = S.zones || {}; const R = PL.regeln;
+  const none = !z.ftp && !z.css;
+  return `<header class="top rise"><div><p class="eyebrow">Zonen statt fester Werte</p><h1>Meine Zonen</h1></div></header>
+  <button class="btn ${none ? 'primary' : 'ghost'} wide rise" ${staggerAttr(1)} data-act="zoneUpdate">${ic('refresh')} ${none ? 'FTP / CSS eintragen (optional)' : 'Werte ändern'}</button>
+  ${none ? `<p class="muted small rise" ${staggerAttr(1)} style="margin:0 4px 12px">Ohne Werte gilt das Gefühl: Z1 = sehr locker, Z2 = locker mit Gesprächstempo. In der Reha gibt es keine Leistungstests.</p>` : ''}
+  <section class="card rise d-bike" ${staggerAttr(2)}><div class="row">${discIc('bike')}<div><h3>Rad (Rolle)${z.ftp ? ' · FTP ' + z.ftp + ' W' : ''}</h3></div></div><div class="ztable">${z26Rows('bike', z.ftp ? z : null, ['Z1', 'Z2'])}</div></section>
+  <section class="card rise d-swim" ${staggerAttr(3)}><div class="row">${discIc('swim')}<div><h3>Schwimmen${z.css ? ' · CSS ' + fmtMMSS(z.css) + '/100 m' : ''}</h3></div></div><div class="ztable">${z26Rows('swim', z.css ? z : null, ['locker', 'A'])}</div></section>
+  <section class="card rise d-walk" ${staggerAttr(4)}><div class="row">${discIc('walk')}<div><h3>Gehen / Laufen</h3></div></div><div class="ztable"><div class="zr c-run"><span>Z1 · zügiges Gehen</span><em>Nasenatmung möglich</em><b></b></div><div class="zr c-run"><span>Z2 · lockeres Laufen</span><em>nur im Geh-Lauf-Test (W8): Gesprächstempo</em><b></b></div></div></section>
+  <section class="card rise" ${staggerAttr(5)}><h3>Übungsstufen</h3><div class="ztable">${PL.stufen.map(p => `<div class="zr c-run"><span>${esc(p.name)}</span><em>Wochen ${p.wochen[0]}–${p.wochen[1]}</em><b></b></div>`).join('')}</div><p class="muted small" style="margin-top:8px">${esc(R.stufenwechsel)}</p></section>
+  <section class="card rise" ${staggerAttr(6)}><h3>Schmerzampel &amp; Regeln</h3><ul class="plain"><li>${esc(R.schmerzampel)}</li><li>${esc(R.nachholen)}</li><li>${esc(R.kraft_steigerung)}</li></ul><p class="warnbox"><b>Sofort zum Arzt:</b> ${esc(R.sofort_arzt)}</p></section>`;
+}
 function viewZones() {
+  if (PM.exercises) return viewZonesCbs();
   if (PM.zoneModel === 'fts') return viewZones26();
   if (PM.zoneModel === 'rpe') {
     const tb = PM.rpeTable();
@@ -477,8 +557,10 @@ function blockHtml(b) {
   if (b.t === 'p') return `<p>${esc(R(b.x))}</p>`;
   if (b.t === 'pm') return `<p class="muted">${esc(R(b.x))}</p>`;
   if (b.t === 'lines') return `<div class="lines">${b.x.map(l => `<div>${esc(l)}</div>`).join('')}</div>`;
-  if (b.t === 'zones') return `<div class="ztable">${z26Rows(b.disc, S.zones)}</div>`;
-  if (b.t === 'table') return `<div class="mtable ${b.cls || ''}${b.cls === 'm8' ? ' scroll' : ''}"><div class="mh">${b.cols.map(c => `<span>${esc(c)}</span>`).join('')}</div>${b.rows.map(r => `<div class="mr">${r.map(c => `<span>${esc(c)}</span>`).join('')}</div>`).join('')}</div>`;
+  if (b.t === 'zones') return `<div class="ztable">${z26Rows(b.disc, S.zones && (S.zones.ftp || S.zones.css) ? S.zones : null, b.only)}</div>`;
+  if (b.t === 'exlib') { const lib = EXS(); return ['physio', 'kraft'].map(k => `<h4>${k === 'physio' ? 'Physio' : 'Kraft'}</h4><div class="exl">${lib.filter(e => e.kat === k).map(e => exItemHtml(e.id, `Stufe ${e.stufe} · ${e.dos}`, '')).join('')}</div>`).join(''); }
+  if (b.t === 'test') { const T_ = PL.test; return `<h4>${esc(T_.name)} – ${T_.minuten} min (Woche ${T_.woche}, ${esc(T_.tag)})</h4><div class="lines">${T_.ausfuehrung.filter(x => x).map(x => `<div>${exLinkify(esc(x))}</div>`).join('')}</div><h4>Bestanden, wenn</h4><ul class="plain">${T_.bestanden.map(x => `<li>${esc(x)}</li>`).join('')}</ul><h4>Voraussetzungen vor dem Test</h4><ul class="plain">${T_.voraussetzungen.map(x => `<li>${esc(x)}</li>`).join('')}</ul><h4>Auswertung</h4><p>${esc(T_.danach)}</p>`; }
+  if (b.t === 'table') return `<div class="mtable ${b.cls || ''}${b.cls === 'm8' ? ' scroll' : ''}${PM.exercises ? ' wrapfix' : ''}"><div class="mh">${b.cols.map(c => `<span>${esc(c)}</span>`).join('')}</div>${b.rows.map(r => `<div class="mr">${r.map(c => `<span>${esc(c)}</span>`).join('')}</div>`).join('')}</div>`;
   if (b.t === 'blocks') return PM.blocks().map(x => `<h4>${esc(T(x.h))}</h4><p>${esc(T(x.t))}</p><p class="muted">${esc(T(x.m))}</p>`).join('');
   if (b.t === 'master') {
     return `<div class="mtable"><div class="mh"><span>Wk</span><span>Phase</span><span>${L('Hours', 'Std.')}</span><span>${PM.lbl[0]}</span><span>${PM.lbl[1]}</span></div>${PL.weeks.map(w => { const c = sched().indexOf(w.n) + 1; return `<a href="#/week/${c}" class="mr"><span>${w.n}</span><span>${esc(T(w.phase))}<small>${esc(T(w.focus))} · ab ${fmtDMY(dateFor(c, 0))}${PM.masterExtra ? ' · ' + esc(PM.masterExtra(w)) : ''}</small></span><span>${hoursFmt(w, PM.kpis[0][3])}</span><span>${w.longBike}</span><span>${w.longRun}</span></a>`; }).join('')}</div>`;
@@ -499,7 +581,7 @@ function viewSettings() {
   const p = S.profile;
   return `<header class="top rise"><a class="back" href="#/more">${ic('back')}</a><h1>Einstellungen</h1></header>
   <section class="card rise" ${staggerAttr(1)}><h3>Profil &amp; Zeitraum</h3><p class="muted small">Plan: <b>${esc(PM.card.title)}</b></p><form id="setform" onsubmit="return false">
-    <div class="fields">${field('Name', 'name', p.name)}${field('Gewicht (kg)', 'weight', p.weight, 'inputmode="decimal"')}${PM.askEventName ? field('Rennname', 'raceName', p.raceName) : ''}<label class="fld"><span>${esc(PM.endField.replace(' *', ''))}</span><input type="date" name="raceDate" value="${p.raceDate}"></label></div>
+    <div class="fields">${field('Name', 'name', p.name)}${field('Gewicht (kg)', 'weight', p.weight, 'inputmode="decimal"')}${PM.askEventName ? field('Rennname', 'raceName', p.raceName) : ''}<label class="fld"><span>${esc(PM.endField.replace(' *', ''))}</span><input type="date" name="raceDate" value="${PM.startMode ? S.startDate : p.raceDate}"></label></div>
     <p class="muted small">Plan-Start: <b>${esc(fmtDate(S.startDate))}</b> (${PL.weeks.length * 7} Tage bis zum Plan-Ende). Eine Änderung des Datums verschiebt den gesamten Plan; bereits eingetragene Daten bleiben an ihren Kalendertagen.</p>
     <button class="btn primary" data-act="saveSettings">Speichern</button></form></section>
   ${PM.hasEnglish ? `<section class="card rise" ${staggerAttr(2)}><h3>Sprache der Plan-Texte</h3><p class="muted small">Die Einheiten-Beschreibungen gibt es auf Deutsch und im englischen Original des PDFs.</p>

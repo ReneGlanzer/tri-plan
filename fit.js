@@ -175,6 +175,7 @@ const FIT = (() => {
   function zoneTarget(ctx, label, z, easy) {
     if (!z) return OPEN;
     if (ctx === 'bike') {
+      if (!z.ftp) return OPEN;
       const code = (label.match(/\b(Z1-Z2|Z2\+|Z1|Z2|Z3|Z4|Z5|K3|RW|SS|SW|VO2)(?![\w+])/) || [])[1]; if (!code) return OPEN;
       if (code === 'Z1-Z2') return { t: 'power', lo: 0, hi: Zn.watts(z, 75) };
       let c = easy && HARD.test(code) ? 'Z2' : code; let lo, hi;
@@ -189,6 +190,7 @@ const FIT = (() => {
       return { t: 'speed', lo: Math.round(1e6 / (z.runThr + d[2])), hi: Math.round(1e6 / (z.runThr + d[1])) };
     }
     if (ctx === 'swim') {
+      if (!z.css) return OPEN;
       const code = (label.match(/\b(locker|schnell|RT|CSS|A)\b/) || [])[1]; if (!code) return OPEN;
       const d = Z26.swim.find(x => x[0] === code); if (!d) return OPEN;
       return { t: 'speed', lo: Math.round(1e5 / (z.css + d[2])), hi: Math.round(1e5 / (z.css + Math.min(d[1], d[2]) - (d[1] === d[2] ? 2 : 0))) };
@@ -218,10 +220,11 @@ const FIT = (() => {
   }
   function execStepsFor(s, z, eff, part) {
     const R = s.raw;
-    if (s.disc === 'strength' || s.disc === 'mob') return { sport: 10, sub: s.disc === 'strength' ? 20 : 19, steps: [step(s.disc === 'strength' ? 'Kraft' : 'Mobility', timeS((eff.dur || s.durMin) * 60), OPEN, 'active', cap(R.exec.map(i => i.x).filter(Boolean).join(' · '), 50))] };
-    const p = part || (s.disc === 'swim' ? 'swim' : s.disc === 'run' ? 'run' : 'bike');
+    if (s.disc === 'strength' || s.disc === 'mob' || s.disc === 'physio') return { sport: 10, sub: s.disc === 'strength' ? 20 : 19, steps: [step(s.disc === 'strength' ? 'Kraft' : s.disc === 'physio' ? 'Physio' : 'Mobility', timeS((eff.dur || s.durMin) * 60), OPEN, 'active', cap(R.exec.map(i => i.x).filter(Boolean).join(' · '), 50))] };
+    const p = part || (s.disc === 'swim' ? 'swim' : s.disc === 'run' ? 'run' : s.disc === 'walk' || s.disc === 'test' ? 'walk' : 'bike');
     let steps = execSteps(s, z, eff, p);
     if (!steps.length) steps = [step('Einheit', timeS(((s.split ? s.split[p] : (eff.dur || s.durMin)) || 30) * 60), OPEN, 'active', cap(T(R.Purpose), 50))];
+    if (p === 'walk') return { sport: s.disc === 'test' ? 1 : 11, sub: 0, steps };
     return { sport: p === 'swim' ? 5 : p === 'run' ? 1 : 2, sub: p === 'swim' ? 17 : 0, steps };
   }
 
